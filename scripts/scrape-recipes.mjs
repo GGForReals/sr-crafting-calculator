@@ -28,6 +28,32 @@ const MAX_RETRIES = 2;
 // Crafting section or no assigned building on the site, not via a static list.
 const ALLOWED_BUILDING_CATEGORIES = new Set(['crafting', 'processing', 'temperature']);
 
+// Known typos on starrupture.tools itself (not scraping errors) that are unlikely to
+// ever get fixed upstream. Applied to both recipe names and input names.
+const NAME_CORRECTIONS = {
+  'Scafolding': 'Scaffolding',
+};
+
+function correctName(name) {
+  return NAME_CORRECTIONS[name] || name;
+}
+
+function correctInputs(inputs) {
+  return Object.fromEntries(Object.entries(inputs).map(([name, qty]) => [correctName(name), qty]));
+}
+
+function applyNameCorrections(recipes) {
+  const corrected = {};
+  for (const [name, recipe] of Object.entries(recipes)) {
+    const fixed = { ...recipe, inputs: correctInputs(recipe.inputs) };
+    if (fixed.altBuilding) {
+      fixed.altBuilding = { ...fixed.altBuilding, inputs: correctInputs(fixed.altBuilding.inputs) };
+    }
+    corrected[correctName(name)] = fixed;
+  }
+  return corrected;
+}
+
 // Machine families that exist in both a v.1 and v.2 building, each with its own
 // recipe list. Used to attach an "altBuilding" variant so the frontend can offer
 // a v1/v2 toggle instead of only ever showing the tier the item page picks as canonical.
@@ -254,7 +280,8 @@ async function main() {
     console.log(`Attached ${altAddedCount} alternate-tier recipe(s).`);
   }
 
-  const sorted = Object.fromEntries(Object.keys(recipes).sort().map((k) => [k, recipes[k]]));
+  const correctedRecipes = applyNameCorrections(recipes);
+  const sorted = Object.fromEntries(Object.keys(correctedRecipes).sort().map((k) => [k, correctedRecipes[k]]));
   await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, JSON.stringify(sorted, null, 2) + '\n', 'utf8');
 

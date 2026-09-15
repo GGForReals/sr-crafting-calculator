@@ -21,7 +21,7 @@
   },
   "Airlock": {
     "inputs": {
-      "Scafolding": 1,
+      "Scaffolding": 1,
       "Pressure Tank": 1,
       "Uberfilament": 1,
       "Pseudorubber Insulator": 1
@@ -213,7 +213,7 @@
       "Uberfilament": 8,
       "Condenser": 2,
       "Airlock": 1,
-      "Scafolding": 4,
+      "Scaffolding": 4,
       "Converter": 1
     },
     "output": 1,
@@ -753,7 +753,7 @@
     "time": 20,
     "building": "Facturer"
   },
-  "Scafolding": {
+  "Scaffolding": {
     "inputs": {
       "Uberfilament": 2,
       "Reinforced Frame": 2,
