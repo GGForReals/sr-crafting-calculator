@@ -35,17 +35,6 @@
   </header>
 
 
-  <!-- ⭐ Download Offline -->
-  <section id="downloadOffline" style="text-align:center; margin:40px 0;">
-    <a href="https://docs.google.com/spreadsheets/d/1yhyF4NxQbiEYIboEisqoxD_YTs9TPU8eE5EuXaqkKps/copy"
-       target="_blank"
-       style="font-size:16px; text-decoration:none; padding:10px 18px; border-radius:6px;
-              background:#72a4f2; color:white; font-weight:600;">
-      Download Offline Spreadsheet Version
-    </a>
-  </section>
-
-
   <!-- ============================
        TABLE + CONTROLS CONTAINER
        (⭐ NEW WRAPPER FOR CENTERING)
@@ -69,6 +58,14 @@
         <option value="120">v1 (120/min)</option>
         <option value="240" selected>v2 (240/min)</option>
         <option value="480">v3 (480/min)</option>
+        <option value="750">v4 (750/min)</option>
+        <option value="1500">v5 (1500/min)</option>
+      </select>
+
+      <label for="tierSelect">Machine Tier:</label>
+      <select id="tierSelect">
+        <option value="v1" selected>v1 (Standard)</option>
+        <option value="v2">v2 (Upgraded)</option>
       </select>
 
       <button id="calcButton">Calculate</button>
@@ -79,7 +76,7 @@
     <!-- Info panel (hidden by default) -->
     <div id="infoPanel" class="info-panel" role="dialog" aria-hidden="true" aria-labelledby="infoTitle">
       <h3 id="infoTitle">About This Tool</h3>
-      <p>This calculator is maintained by StarRupture Crafting Calculations as a community resource for StarRupture players. It is a fan‑made project and is not affiliated with the StarRupture developers.</p>
+      <p>This calculator is maintained by GGforReals as a community resource for StarRupture players. It is a fan‑made project and is not affiliated with the StarRupture developers.</p>
 
       <h4>How to Use</h4>
       <ul>
@@ -91,7 +88,7 @@
         <li><strong>Share setups</strong> with the Share button to generate a link that preserves item, rate, and rail settings.</li>
       </ul>
 
-      <h4>Issues Ideas or Corrections</h4>
+      <h4>Issues, Ideas, or Corrections</h4>
       <p>If you spot incorrect data, encounter a bug, or want to suggest a feature, please contact me directly:</p>
       <p><a href="mailto:sr.craftingcalculations@gmail.com?subject=StarRupture%20Calculator%20Feedback" id="contactEmail">sr.craftingcalculations@gmail.com</a></p>
 
@@ -116,10 +113,10 @@
   <!-- ⭐ Ko-fi Floating Support Button -->
   <script src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"></script>
   <script>
-    kofiWidgetOverlay.draw('sr_craftingcalculations', {
+    kofiWidgetOverlay.draw('ggforreals', {
       'type': 'floating-chat',
-      'floating-chat.donateButton.text': 'Support',
-      'floating-chat.donateButton.background-color': '#29abe0',
+      'floating-chat.donateButton.text': 'Support me',
+      'floating-chat.donateButton.background-color': '#00b9fe',
       'floating-chat.donateButton.text-color': '#fff'
     });
   </script>

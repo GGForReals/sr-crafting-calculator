@@ -1,0 +1,20 @@
+{
+  "Standard Ammo": {
+    "inputs": { "Basic Building Material": 18, "Wolfram Powder": 4 },
+    "output": 20,
+    "time": 6,
+    "building": "Mega Press"
+  },
+  "Heavy Ammo": {
+    "inputs": { "Basic Building Material": 24, "Titanium Rod": 6 },
+    "output": 15,
+    "time": 6,
+    "building": "Mega Press"
+  },
+  "Shotgun Ammo": {
+    "inputs": { "Basic Building Material": 20, "Calcium Powder": 6 },
+    "output": 15,
+    "time": 6,
+    "building": "Mega Press"
+  }
+}
