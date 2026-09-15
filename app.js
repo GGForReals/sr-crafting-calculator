@@ -23,7 +23,20 @@ const MACHINE_COLORS = {
   "Assembler":    "#00b894",
   "Refinery":     "#e84393",
   "Compounder":   "#00cec9",
-  "Pyro Forge":   "#a55eea"
+  "Pyro Forge":   "#a55eea",
+  "Constructorizer v.2": "#f1c40f",
+  "Pressurizer":  "#4b7bec",
+  "Fabricator v.2": "#3f8fe0",
+  "Furnace v.2":    "#eb6b6b",
+  "Compounder v.2": "#33e0da",
+  "Constructorizer": "#8d6e63",
+  "Facturer":       "#34495e"
+};
+
+// Confirmed via community comments on starrupture.tools (items per minute, per purity).
+const ORE_EXCAVATOR_RATES = {
+  v1: { impure: 60, normal: 120, pure: 240 },
+  v2: { impure: 180, normal: 300, pure: 480 }
 };
 
 const SPECIAL_EXTRACTORS = {
@@ -47,11 +60,23 @@ const BBM_ID = 'Basic Building Material';
 let RECIPES = {};
 let TIERS = {};
 
+// 'v1' or 'v2' — which machine tier's recipe/extraction rate to prefer when both exist.
+let MACHINE_TIER = 'v1';
+
+function isTierTwoBuilding(buildingName) {
+  return /v\.\d+$/.test(buildingName || '');
+}
+
 /* ===============================
    Utilities
    =============================== */
 function escapeHtml(str) {
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 function getTextColor(bg) {
   if (!bg || bg[0] !== "#") return "#000000";
@@ -268,7 +293,17 @@ async function loadRecipes() {
    Expand production chain
    =============================== */
 function getRecipe(name) {
-  return RECIPES[name] || null;
+  const base = RECIPES[name];
+  if (!base) return null;
+  if (!base.altBuilding) return base;
+
+  const wantV2 = MACHINE_TIER === 'v2';
+  const baseIsV2 = isTierTwoBuilding(base.building);
+  if (wantV2 === baseIsV2) return base;
+
+  // Preference doesn't match this recipe's tier — use the alternate-tier variant instead.
+  const alt = base.altBuilding;
+  return { inputs: alt.inputs, output: alt.output, time: alt.time, building: alt.building };
 }
 
 function expandChain(item, targetRate) {
@@ -1201,16 +1236,24 @@ function renderGraph(nodes, links, rootItem) {
     // ---------------------------------
     // Horizontal bypass rail (dot-to-dot with arrows)
     // ---------------------------------
+    // Sort by actual x position (true visual order along the rail), not just
+    // depth — an 'out' dot and 'in' dot can share the same depth but sit at
+    // different x (right vs left edge of the same column). Sorting by depth
+    // alone made same-depth ties ambiguous: skipping "connect within the same
+    // column" while still advancing the loop index either reused the wrong
+    // waypoint (arrow anchored on the wrong start node) or, when instead
+    // deduped down to one dot per depth, dropped a real waypoint entirely
+    // (arrow spanning straight between two 'out' nodes, skipping a column).
+    // Sorting by x and connecting every consecutive pair avoids both: each
+    // pair is always genuinely x-adjacent, and every line always gets exactly
+    // one arrow.
     const topBypassDots = bypassDots
       .slice()
-      .sort((a, b) => a.depth - b.depth);
+      .sort((a, b) => a.x - b.x);
 
     for (let i = 0; i < topBypassDots.length - 1; i++) {
       const a = topBypassDots[i];
       const b = topBypassDots[i + 1];
-
-      // never connect within the same column
-      if (a.depth === b.depth) continue;
 
       inner += `
         <line
@@ -1244,11 +1287,12 @@ function renderGraph(nodes, links, rootItem) {
       ? "#f4d03f"
       : MACHINE_COLORS[node.building] || "#95a5a6";
 
-    const label = String(node.label || node.id);
+    const rawLabel = String(node.label || node.id);
+    const label = escapeHtml(rawLabel);
 
     const fontSize = 13;
     const padX = 10, padY = 6;
-    const width = Math.max(48, label.length * 7 + padX * 2);
+    const width = Math.max(48, rawLabel.length * 7 + padX * 2);
     const height = fontSize + padY * 2;
 
     // Machine count shown inside node
@@ -1451,8 +1495,7 @@ function renderTable(chainObj, rootItem, rate) {
       let outputPerMachine = "—";
       let machines = "—";
       let railsNeeded = "—";
-      const fillColor = MACHINE_COLORS[data.building] || "#ecf0f1";
-      const textColor = getTextColor(fillColor);
+      const fillColor = MACHINE_COLORS[data.building] || "#576574";
 
       const recipe = getRecipe(item);
       if (recipe && recipe.output && recipe.time) {
@@ -1474,7 +1517,7 @@ function renderTable(chainObj, rootItem, rate) {
           <td>${Math.ceil(data.rate || 0)}</td>
           <td>${outputPerMachine}</td>
           <td>${machines}</td>
-          <td style="background-color:${fillColor}; color:${textColor};">${escapeHtml(data.building || "—")}</td>
+          <td style="background-color:${fillColor}; color:#ffffff; text-shadow: 0 0 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.85);">${escapeHtml(data.building || "—")}</td>
           <td>${inputsList}</td>
           <td>${railsNeeded}</td>
         </tr>
@@ -1497,9 +1540,9 @@ function renderTable(chainObj, rootItem, rate) {
     </table>
   `;
 
-  // Extraction summary (unchanged)
+  // Extraction summary
   html += `
-    <h3>EXTRACTION REQUIRED</h3>
+    <h3>EXTRACTION REQUIRED (Ore Excavator ${escapeHtml(MACHINE_TIER)})</h3>
     <table>
       <thead>
         <tr><th>Resource</th><th>Impure</th><th>Normal</th><th>Pure</th><th>Qty/min</th></tr>
@@ -1508,15 +1551,16 @@ function renderTable(chainObj, rootItem, rate) {
   `;
 
   const sortedExtractors = Object.entries(extractorTotals || {}).filter(([_, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
+  const oreRates = ORE_EXCAVATOR_RATES[MACHINE_TIER] || ORE_EXCAVATOR_RATES.v1;
   for (const [resource, qty] of sortedExtractors) {
     const rounded = Math.ceil(qty);
     if (SPECIAL_EXTRACTORS[resource]) {
       const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
       html += `<tr><td>${escapeHtml(resource)}</td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
     } else {
-      const impure = Math.ceil(rounded / 60);
-      const normal = Math.ceil(rounded / 120);
-      const pure = Math.ceil(rounded / 240);
+      const impure = Math.ceil(rounded / oreRates.impure);
+      const normal = Math.ceil(rounded / oreRates.normal);
+      const pure = Math.ceil(rounded / oreRates.pure);
       html += `<tr><td>${escapeHtml(resource)}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
     }
   }
@@ -1541,11 +1585,13 @@ function runCalculator() {
     return;
   }
 
+  MACHINE_TIER = document.getElementById("tierSelect")?.value === 'v2' ? 'v2' : 'v1';
+
   const chainObj = expandChain(item, rate);
   renderTable(chainObj, item, rate);
 
   const rail = document.getElementById("railSelect").value;
-  const params = new URLSearchParams({ item, rate, rail });
+  const params = new URLSearchParams({ item, rate, rail, tier: MACHINE_TIER });
   history.replaceState(null, "", "?" + params.toString());
 }
 
@@ -1577,6 +1623,8 @@ async function init() {
     <option value="120">v1 (120/min)</option>
     <option value="240">v2 (240/min)</option>
     <option value="480">v3 (480/min)</option>
+    <option value="750">v4 (750/min)</option>
+    <option value="1500">v5 (1500/min)</option>
   `;
 
   // Reset rate input
@@ -1651,6 +1699,8 @@ async function init() {
   const sharedItem = params.get("item");
   const sharedRate = params.get("rate");
   const sharedRail = params.get("rail");
+  const sharedTier = params.get("tier");
+  const tierSelect = document.getElementById("tierSelect");
 
   if (sharedItem && itemSelect && !sharedItem.startsWith('_')) {
     // Only set if the option exists; otherwise leave placeholder
@@ -1659,7 +1709,12 @@ async function init() {
   }
   if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
   if (sharedRail && railSelect) railSelect.value = sharedRail;
+  if (sharedTier && tierSelect && (sharedTier === 'v1' || sharedTier === 'v2')) tierSelect.value = sharedTier;
   if (sharedItem && sharedRate && !sharedItem.startsWith('_')) runCalculator();
+
+  if (tierSelect) tierSelect.addEventListener("change", () => {
+    if (itemSelect?.value) runCalculator();
+  });
 
   // Buttons wiring
   const calcButton = document.getElementById("calcButton");
@@ -1668,7 +1723,8 @@ async function init() {
     const item = itemSelect?.value || "";
     const rate = rateInput?.value || "";
     const rail = railSelect?.value || "";
-    const newParams = new URLSearchParams({ item, rate, rail });
+    const tier = tierSelect?.value || "v1";
+    const newParams = new URLSearchParams({ item, rate, rail, tier });
     history.replaceState(null, "", "?" + newParams.toString());
   });
 
