@@ -1732,9 +1732,8 @@ async function init() {
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
       if (rateInput) rateInput.dataset.manual = "";
-      const base = window.location.origin;
-      if (base.includes("localhost")) { window.location.href = "http://localhost:8000"; return; }
-      window.location.href = "https://srcraftingcalculations.github.io/sr-crafting-calculator/";
+      // Reset to this same page with no query params, regardless of domain/environment.
+      window.location.href = window.location.origin + window.location.pathname;
     });
   }
 
