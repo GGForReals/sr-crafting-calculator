@@ -1,0 +1,37 @@
+name: Update Crafting Recipes
+
+on:
+  schedule:
+    # 06:17 UTC daily
+    - cron: '17 6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Scrape recipes.json from starrupture.tools
+        run: npm run scrape-recipes
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/recipes.json
+          git diff --cached --quiet || git commit -m "Auto-update recipes.json"
+          git push
