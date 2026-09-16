@@ -18,6 +18,7 @@ const SEARCH_API = 'https://starrupture.tools/api/search';
 const NAV_TIMEOUT_MS = 20000;
 const REQUEST_DELAY_MS = 350;
 const MAX_RETRIES = 2;
+const MIN_LIVE_RECIPE_COUNT = 50;
 
 // Buildings are only treated as valid factory machines if the site categorizes them as
 // one of these. "survival" (e.g. Basic Item Printer) are player crafting stations, and
@@ -232,6 +233,12 @@ async function main() {
   }
 
   await browser.close();
+
+  if (Object.keys(recipes).length < MIN_LIVE_RECIPE_COUNT) {
+    throw new Error(
+      `Scrape produced ${Object.keys(recipes).length} live recipes; refusing to overwrite ${OUTPUT_PATH}.`
+    );
+  }
 
   // Fill in items the site doesn't classify as craftable resources (e.g. ammo),
   // but only where the live scrape didn't already produce that recipe.
