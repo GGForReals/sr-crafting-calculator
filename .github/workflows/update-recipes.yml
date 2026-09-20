@@ -74,6 +74,18 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Report final status
+        if: always()
+        shell: bash
+        run: |
+          if git diff --quiet -- data/recipes.json; then
+            echo "Final status: kept the last known-good recipe dataset"
+            echo "Final status: kept the last known-good recipe dataset" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Final status: wrote a fresh recipe dataset"
+            echo "Final status: wrote a fresh recipe dataset" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
