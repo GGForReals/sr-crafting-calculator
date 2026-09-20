@@ -54,21 +54,24 @@ jobs:
 
       - name: Summarize recipe update result
         if: always()
+        shell: bash
         run: |
           if [ -f data/recipes.json ]; then
-            node - <<'NODE'
-            const fs = require('fs');
-            const path = 'data/recipes.json';
-            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-            const count = Object.keys(data || {}).length;
-            const summary = `### Recipe update summary\n\n- Generated recipe count: ${count}\n- Source: starrupture.tools\n- Result: dataset validated successfully`;
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
-            console.log(summary);
-            NODE
+            count=$(node -p "Object.keys(JSON.parse(require('fs').readFileSync('data/recipes.json', 'utf8')) || {}).length")
+            {
+              echo "### Recipe update summary"
+              echo
+              echo "- Generated recipe count: $count"
+              echo "- Source: starrupture.tools"
+              echo "- Result: dataset validated successfully"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Recipe update summary: $count recipes"
           else
-            echo "### Recipe update summary
-
-- Result: no dataset was generated" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Recipe update summary"
+              echo
+              echo "- Result: no dataset was generated"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Commit and push if changed
