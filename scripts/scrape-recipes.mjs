@@ -6,9 +6,10 @@
 // Requires: npm install, then `npx playwright install --with-deps chromium`
 
 import { chromium } from 'playwright';
-import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_PATH = path.join(__dirname, '..', 'data', 'recipes.json');
@@ -199,6 +200,37 @@ async function scrapeBuildingRecipes(page, buildingName, slug) {
   return [];
 }
 
+export function decideRecipeWrite(liveCount, previousCount, minimumLiveRecipeCount = MIN_LIVE_RECIPE_COUNT) {
+  if (liveCount >= minimumLiveRecipeCount) {
+    return { action: 'write' };
+  }
+
+  if (previousCount > 0) {
+    return {
+      action: 'keep-existing',
+      liveCount,
+      previousCount,
+      minimumLiveRecipeCount,
+    };
+  }
+
+  return {
+    action: 'fail',
+    liveCount,
+    previousCount,
+    minimumLiveRecipeCount,
+  };
+}
+
+async function loadPreviousRecipes() {
+  try {
+    await access(OUTPUT_PATH, constants.F_OK);
+    return JSON.parse(await readFile(OUTPUT_PATH, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   console.log('Fetching item list and building categories...');
   const [items, buildingCategories] = await Promise.all([fetchItemList(), fetchBuildingCategories()]);
@@ -233,12 +265,6 @@ async function main() {
   }
 
   await browser.close();
-
-  if (Object.keys(recipes).length < MIN_LIVE_RECIPE_COUNT) {
-    throw new Error(
-      `Scrape produced ${Object.keys(recipes).length} live recipes; refusing to overwrite ${OUTPUT_PATH}.`
-    );
-  }
 
   // Fill in items the site doesn't classify as craftable resources (e.g. ammo),
   // but only where the live scrape didn't already produce that recipe.
@@ -289,13 +315,38 @@ async function main() {
 
   const correctedRecipes = applyNameCorrections(recipes);
   const sorted = Object.fromEntries(Object.keys(correctedRecipes).sort().map((k) => [k, correctedRecipes[k]]));
+  const previousRecipes = await loadPreviousRecipes();
+  const decision = decideRecipeWrite(
+    Object.keys(sorted).length,
+    previousRecipes ? Object.keys(previousRecipes).length : 0,
+    MIN_LIVE_RECIPE_COUNT,
+  );
+
+  if (decision.action === 'keep-existing') {
+    console.warn(
+      `Live scrape produced ${decision.liveCount} recipes, below the minimum of ${decision.minimumLiveRecipeCount}. ` +
+        `Keeping the previous ${decision.previousCount}-recipe dataset instead of overwriting it.`
+    );
+    return;
+  }
+
+  if (decision.action === 'fail') {
+    throw new Error(
+      `Scrape produced ${decision.liveCount} live recipes; refusing to overwrite ${OUTPUT_PATH} because ` +
+        `there is no previous dataset to fall back to.`
+    );
+  }
+
   await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, JSON.stringify(sorted, null, 2) + '\n', 'utf8');
 
   console.log(`Done. Wrote ${Object.keys(sorted).length} recipes to ${path.relative(process.cwd(), OUTPUT_PATH)}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isRunDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isRunDirectly) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

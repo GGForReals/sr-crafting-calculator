@@ -12,12 +12,16 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -28,10 +32,55 @@ jobs:
       - name: Scrape recipes.json from starrupture.tools
         run: npm run scrape-recipes
 
+      - name: Validate generated dataset
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const file = 'data/recipes.json';
+
+          if (!fs.existsSync(file)) {
+            throw new Error('data/recipes.json was not generated.');
+          }
+
+          const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const count = Object.keys(data || {}).length;
+
+          if (!data || typeof data !== 'object' || Array.isArray(data) || count < 10) {
+            throw new Error(`Generated dataset appears invalid: ${count} recipe entries.`);
+          }
+
+          console.log(`Validated data/recipes.json with ${count} recipes.`);
+          NODE
+
+      - name: Summarize recipe update result
+        if: always()
+        run: |
+          if [ -f data/recipes.json ]; then
+            node - <<'NODE'
+            const fs = require('fs');
+            const path = 'data/recipes.json';
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const count = Object.keys(data || {}).length;
+            const summary = `### Recipe update summary\n\n- Generated recipe count: ${count}\n- Source: starrupture.tools\n- Result: dataset validated successfully`;
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
+            console.log(summary);
+            NODE
+          else
+            echo "### Recipe update summary
+
+- Result: no dataset was generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/recipes.json
-          git diff --cached --quiet || git commit -m "Auto-update recipes.json"
+
+          if git diff --cached --quiet; then
+            echo "No recipe changes to commit. Keeping existing dataset."
+            exit 0
+          fi
+
+          git commit -m "Auto-update recipes.json"
           git push
