@@ -39,6 +39,7 @@ There is currently no deployed CSP or other checked browser security headers. De
 
 ### Operational Follow-Up
 
+- Test-branch run `37143707761` passed installation and regression/security tests, but the upstream Search API returned HTTP 403 before scraping. Publishing was skipped. A full local scrape succeeded with 96 recipes and no dataset changes. Startup API failures now keep only a schema-validated previous dataset of at least 50 recipes, with an explicit warning and summary that no fresh data was generated. This preserves availability; it does not resolve upstream access restrictions or verify the publisher job.
 - Run the updated Actions workflow manually after review and verify artifact publishing and the no-change path; local actionlint does not replace a real runner execution.
 - Protect the default branch, require reviewed changes/checks where practical, restrict Actions permissions, enable dependency/security alerts and secret scanning where available, and use MFA for repository/domain accounts.
 - The live scraper was not rerun during this review. Validation cannot detect plausible but factually incorrect upstream recipe data.

@@ -6,7 +6,7 @@
 // Requires: npm install, then `npx playwright install --with-deps chromium`
 
 import { chromium } from 'playwright';
-import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, access, appendFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -239,9 +239,34 @@ async function loadPreviousRecipes() {
   }
 }
 
+export async function loadSearchSnapshot({ loadItems = fetchItemList, loadCategories = fetchBuildingCategories, loadPrevious = loadPreviousRecipes } = {}) {
+  try {
+    const [items, buildingCategories] = await Promise.all([loadItems(), loadCategories()]);
+    return { items, buildingCategories };
+  } catch (error) {
+    const previous = await loadPrevious();
+    if (!previous) throw error;
+    validateRecipeDataset(previous, { minimumCount: MIN_LIVE_RECIPE_COUNT });
+    return { keptPrevious: true, previousCount: Object.keys(previous).length, reason: String(error.message || error) };
+  }
+}
+
+async function reportKeptDataset(message) {
+  console.warn(message);
+  if (process.env.GITHUB_ACTIONS === 'true') console.warn('::warning::Recipe refresh did not complete; kept the validated previous dataset.');
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, '### Recipe refresh\n\nNo fresh dataset was generated. Kept the validated previous recipe dataset. Check the scraper log for the upstream failure or safety-threshold warning.\n');
+  }
+}
+
 async function main() {
   console.log('Fetching item list and building categories...');
-  const [items, buildingCategories] = await Promise.all([fetchItemList(), fetchBuildingCategories()]);
+  const snapshot = await loadSearchSnapshot();
+  if (snapshot.keptPrevious) {
+    await reportKeptDataset(`Search API unavailable: ${snapshot.reason}. Keeping the validated previous ${snapshot.previousCount}-recipe dataset; no fresh scrape was performed.`);
+    return;
+  }
+  const { items, buildingCategories } = snapshot;
   console.log(`Found ${items.length} candidate items. Scraping crafting data...`);
 
   const browser = await chromium.launch();
@@ -332,7 +357,7 @@ async function main() {
   );
 
   if (decision.action === 'keep-existing') {
-    console.warn(
+    await reportKeptDataset(
       `Live scrape produced ${decision.liveCount} recipes, below the minimum of ${decision.minimumLiveRecipeCount}. ` +
         `Keeping the previous ${decision.previousCount}-recipe dataset instead of overwriting it.`
     );
