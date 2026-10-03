@@ -87,6 +87,62 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     await mobile.locator('#resetViewBtn').click();
     await powder.tap();
     assert.equal(await powder.getAttribute('aria-pressed'), 'true');
+
+    await page.goto('http://calculator.test/?item=Rotor&rate=120&rail=120&tier=v2');
+    const plate = page.locator('.graph-node[data-id="Wolfram Plate"]');
+    await plate.click();
+    assert.deepEqual(await pulsingIds(), ['Wolfram Plate', 'Wolfram Powder', 'Wolfram Bar'].sort());
+    const positions = await page.evaluate(() => {
+      const circleFor = name => [...document.querySelectorAll('.graph-node')].find(node => node.dataset.id === name).querySelector('circle');
+      return { plate: Number(circleFor('Wolfram Plate').getAttribute('cx')), powder: Number(circleFor('Wolfram Powder').getAttribute('cx')) };
+    });
+    assert.ok(positions.powder < positions.plate);
+    await page.locator('[data-tier-item="Wolfram Plate"]').click();
+    assert.deepEqual(await pulsingIds(), ['Wolfram Plate', 'Wolfram Bar'].sort());
+
+    const violations = await page.evaluate(() => {
+      const failures = [];
+      for (const tier of ['v1', 'v2']) {
+        ACTIVE_PLAN = { item: 'Rotor', rate: 120, rail: '120', tier };
+        ITEM_TIER_OVERRIDES.clear();
+        for (const name of Object.keys(RECIPES)) {
+          const { chain } = expandChain(name, 120);
+          const depths = computeDepthsFromTiers(chain, name);
+          for (const [consumer, data] of Object.entries(chain)) {
+            for (const input of Object.keys(data.inputs)) {
+              if (depths[input] >= depths[consumer]) failures.push({ tier, root: name, consumer, input });
+            }
+          }
+        }
+      }
+      return failures;
+    });
+    assert.deepEqual(violations, []);
+
+    for (const viewport of [{ width: 1820, height: 900 }, { width: 1440, height: 700 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      const clipped = await page.evaluate(async () => {
+        const failures = [];
+        for (const tier of ['v1', 'v2']) {
+          ITEM_TIER_OVERRIDES.clear();
+          for (const item of Object.keys(RECIPES)) {
+            ACTIVE_PLAN = { item, rate: 120, rail: '120', tier };
+            renderActivePlan();
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            const wrapper = document.querySelector('.graphWrapper');
+            const bounds = wrapper.getBoundingClientRect();
+            const content = wrapper.querySelector('#zoomLayer').getBoundingClientRect();
+            if (content.left < bounds.left - 1 || content.right > bounds.right + 1 || content.top < bounds.top - 1 || content.bottom > bounds.bottom + 1) failures.push({ item, tier, phase: 'initial' });
+            wrapper.querySelector('#zoomLayer').setAttribute('transform', 'translate(10000,10000)');
+            document.querySelector('#resetViewBtn').click();
+            const resetContent = wrapper.querySelector('#zoomLayer').getBoundingClientRect();
+            if (resetContent.left < bounds.left - 1 || resetContent.right > bounds.right + 1 || resetContent.top < bounds.top - 1 || resetContent.bottom > bounds.bottom + 1) failures.push({ item, tier, phase: 'reset' });
+          }
+        }
+        return failures;
+      });
+      assert.deepEqual(clipped, [], `Graph clipping at ${viewport.width}x${viewport.height}`);
+    }
   } finally {
     await browser.close();
   }

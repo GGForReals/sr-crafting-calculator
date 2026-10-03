@@ -23,11 +23,45 @@ test('hostile URLs and imported strings cannot execute HTML or corrupt calculato
       await route.fulfill({ body: await readFile(new URL(asset[0], import.meta.url)), contentType: asset[1] });
     });
 
-    for (const rate of ['0', '-1', 'NaN', 'Infinity', '1e999', '1e300', '1000000001']) {
+    for (const rate of ['NaN', 'Infinity', '1e999', '1e300', '1000000001']) {
       await page.goto('http://calculator.test/?' + new URLSearchParams({ item: 'Basic Fuel', rate }));
       await page.waitForFunction(() => document.querySelector('#outputArea').textContent.includes('valid rate'));
       assert.equal(await page.locator('.graph-node').count(), 0);
     }
+
+    for (const rate of ['0', '-1']) {
+      await page.goto('http://calculator.test/?' + new URLSearchParams({ item: 'Basic Fuel', rate }));
+      await page.waitForSelector('.graph-node');
+      assert.equal(await page.locator('#rateInput').inputValue(), '10');
+      assert.equal(new URL(page.url()).searchParams.get('rate'), '10');
+    }
+
+    await page.goto('http://calculator.test/');
+    await page.waitForFunction(() => document.querySelector('#itemSelect').options.length > 1);
+    for (const tier of ['v1', 'v2']) {
+      await page.selectOption('#tierSelect', tier);
+      const items = Object.keys(fixture);
+      for (const item of items) {
+        await page.fill('#rateInput', '999');
+        await page.selectOption('#itemSelect', item);
+        const expected = await page.evaluate(() => getNaturalRateForSelected());
+        assert.equal(Number(await page.locator('#rateInput').inputValue()), expected);
+      }
+    }
+    await page.selectOption('#itemSelect', 'Rotor');
+    const rotorRate = await page.locator('#rateInput').inputValue();
+    assert.equal(rotorRate, '60');
+    for (const value of ['0', '-1', '-100']) {
+      await page.fill('#rateInput', value);
+      assert.equal(await page.locator('#rateInput').inputValue(), rotorRate);
+    }
+    await page.fill('#rateInput', '75');
+    await page.locator('#rateInput').blur();
+    assert.equal(await page.locator('#rateInput').inputValue(), '75');
+    await page.fill('#rateInput', '');
+    await page.locator('#rateInput').blur();
+    assert.equal(await page.locator('#rateInput').inputValue(), rotorRate);
+    assert.equal(await page.locator('.graph-node').count(), 0);
 
     await page.goto('http://calculator.test/?' + new URLSearchParams({ item: 'constructor', rate: '120', rail: '999', tiers: '{"__proto__":"v2","constructor":"v2"}' }));
     await page.waitForFunction(() => document.querySelector('#itemSelect').options.length > 1);

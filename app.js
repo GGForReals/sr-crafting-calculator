@@ -305,13 +305,13 @@ async function loadRecipes() {
 /* ===============================
    Expand production chain
    =============================== */
-function getRecipe(name) {
+function getRecipe(name, tier = getItemTier(name)) {
   if (!Object.hasOwn(RECIPES, name)) return null;
   const base = RECIPES[name];
   if (!base) return null;
   if (!base.altBuilding) return base;
 
-  const wantV2 = getItemTier(name) === 'v2';
+  const wantV2 = tier === 'v2';
   const baseIsV2 = isTierTwoBuilding(base.building);
   if (wantV2 === baseIsV2) return base;
 
@@ -391,130 +391,25 @@ function expandChain(item, targetRate) {
    =============================== */
 function computeDepthsFromTiers(chain, rootItem) {
   const depths = {};
-  const MAX_PASSES = 6;
+  const visiting = new Set();
 
-  // Helper: initialize base depths from TIERS (no +1)
-  function initBaseDepths() {
-    for (const item of Object.keys(chain || {})) {
-      const tableLevel = Number(TIERS?.[item] ?? 0);
-      depths[item] = Number.isFinite(tableLevel) ? Math.floor(tableLevel) : 0;
-    }
-
-    // Raw defaults
-    for (const item of Object.keys(chain || {})) {
-      if (chain[item].raw) {
-        if (FORCED_RAW_ORES.includes(item)) depths[item] = 0;
-        else if (!(item in TIERS)) depths[item] = 0;
-      }
-    }
-
-    // Heuristic: items whose inputs are all raw -> depth 0
-    for (const [item, data] of Object.entries(chain || {})) {
-      const inputs = data.inputs || {};
-      const inputNames = Object.keys(inputs);
-      if (inputNames.length > 0) {
-        const allInputsRaw = inputNames.every(inName => {
-          const inNode = chain[inName];
-          return !!(inNode && inNode.raw);
-        });
-        if (allInputsRaw) depths[item] = 0;
-      }
-    }
-
-    // Normalize
-    for (const k of Object.keys(depths)) {
-      let v = Number(depths[k]);
-      if (!Number.isFinite(v) || isNaN(v)) v = 0;
-      depths[k] = Math.max(0, Math.floor(v));
-    }
+  function depthFor(item) {
+    if (Object.hasOwn(depths, item)) return depths[item];
+    if (visiting.has(item)) throw new Error('Cyclic production chain.');
+    const data = chain[item];
+    if (!data || data.raw) return (depths[item] = 0);
+    visiting.add(item);
+    const inputDepths = Object.keys(data.inputs || {}).map(depthFor);
+    depths[item] = 1 + Math.max(0, ...inputDepths);
+    visiting.delete(item);
+    return depths[item];
   }
 
-  // Helper: compute earliest consumer depth for a given raw name
-  function earliestConsumerDepth(rawName) {
-    let min = Infinity;
-    for (const [consumerName, consumerData] of Object.entries(chain || {})) {
-      const inputs = consumerData.inputs || {};
-      if (Object.prototype.hasOwnProperty.call(inputs, rawName)) {
-        const d = Number(depths[consumerName] ?? (Number(TIERS?.[consumerName] ?? 0)));
-        if (Number.isFinite(d) && d < min) min = d;
-      }
-    }
-    return min;
-  }
-
-  // Start with base depths
-  initBaseDepths();
-
-  // Iteratively apply raw-placement and optional shifting until stable or max passes
-  for (let pass = 0; pass < MAX_PASSES; pass++) {
-    const prev = {};
-    for (const k of Object.keys(depths)) prev[k] = depths[k];
-
-    // 1) Place LEFT_OF_CONSUMER_RAWS one column left of earliest consumer (if any)
-    for (const rawName of LEFT_OF_CONSUMER_RAWS) {
-      if (!(rawName in chain)) continue;
-      const minConsumer = earliestConsumerDepth(rawName);
-      if (minConsumer === Infinity) {
-        // no consumer in this chain — keep existing or default 0
-        depths[rawName] = Math.max(0, depths[rawName] ?? 0);
-      } else {
-        // place raw immediately left of earliest consumer
-        const target = Math.max(0, Math.floor(minConsumer) - 1);
-        depths[rawName] = target;
-      }
-    }
-
-    // 2) For any raw that exists only because it's an input (i.e., present but not a table item),
-    //    ensure it sits immediately left of its earliest consumer as well.
-    for (const item of Object.keys(chain || {})) {
-      if (!chain[item].raw) continue;
-      // If this raw has consumers, place it left of earliest consumer
-      const minConsumer = earliestConsumerDepth(item);
-      if (minConsumer !== Infinity) {
-        depths[item] = Math.max(0, Math.floor(minConsumer) - 1);
-      } else {
-        // otherwise keep current/default
-        depths[item] = Math.max(0, depths[item] ?? 0);
-      }
-    }
-
-    // 3) Normalize before deciding shift
-    for (const k of Object.keys(depths)) {
-      let v = Number(depths[k]);
-      if (!Number.isFinite(v) || isNaN(v)) v = 0;
-      depths[k] = Math.max(0, Math.floor(v));
-    }
-
-    // 4) If any raw is at depth 0, enforce raw-left rule: set all raws to 0 and shift non-raw +1
-    const rawItems = Object.keys(chain || {}).filter(i => chain[i] && chain[i].raw);
-    const anyRawAtZero = rawItems.length > 0 && rawItems.some(r => depths[r] === 0);
-    if (anyRawAtZero) {
-      for (const r of rawItems) depths[r] = 0;
-      for (const k of Object.keys(depths)) {
-        if (!(chain[k] && chain[k].raw)) depths[k] = Math.max(0, Math.floor(depths[k]) + 1);
-      }
-    }
-
-    // 5) Final normalization for this pass
-    for (const k of Object.keys(depths)) {
-      let v = Number(depths[k]);
-      if (!Number.isFinite(v) || isNaN(v)) v = 0;
-      depths[k] = Math.max(0, Math.floor(v));
-    }
-
-    // 6) If stable, break early
-    let stable = true;
-    for (const k of Object.keys(depths)) {
-      if (prev[k] !== depths[k]) { stable = false; break; }
-    }
-    if (stable) break;
-  }
-
-  // Final clamp and return
-  for (const k of Object.keys(depths)) {
-    let v = Number(depths[k]);
-    if (!Number.isFinite(v) || isNaN(v)) v = 0;
-    depths[k] = Math.max(0, Math.floor(v));
+  for (const item of Object.keys(chain || {})) depthFor(item);
+  for (const rawName of LEFT_OF_CONSUMER_RAWS) {
+    if (!chain[rawName]?.raw) continue;
+    const consumers = Object.entries(chain).filter(([, data]) => Object.hasOwn(data.inputs || {}, rawName));
+    if (consumers.length) depths[rawName] = Math.min(...consumers.map(([name]) => depths[name])) - 1;
   }
 
   return depths;
@@ -585,18 +480,22 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   let dragThreshold = DRAG_THRESHOLD_PX;
 
   function getContentBBox() {
-    const vb = svg.viewBox.baseVal;
-    if (vb && vb.width && vb.height) return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
     try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
   }
 
   function getViewSizeInSvgCoords() {
     const rect = svg.getBoundingClientRect();
-    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
+    const containerRect = containerEl.getBoundingClientRect();
+    const style = getComputedStyle(containerEl);
+    const left = Math.max(rect.left, containerRect.left + parseFloat(style.paddingLeft));
+    const top = Math.max(rect.top, containerRect.top + parseFloat(style.paddingTop));
+    const right = Math.min(rect.right, containerRect.right - parseFloat(style.paddingRight));
+    const bottom = Math.min(rect.bottom, containerRect.bottom - parseFloat(style.paddingBottom));
+    const ptTL = svg.createSVGPoint(); ptTL.x = left; ptTL.y = top;
+    const ptBR = svg.createSVGPoint(); ptBR.x = right; ptBR.y = bottom;
     const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
     const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
+    return { x: svgTL.x, y: svgTL.y, width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
   }
 
   function clampTranslation(proposedTx, proposedTy, proposedScale) {
@@ -607,11 +506,11 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const buffer = Math.max(12, Math.min(view.width, view.height) * 0.04);
 
     // Compute min/max allowed translation in SVG coords
-    const minTx = buffer - (bbox.x + bbox.width) * proposedScale;
-    const maxTx = view.width - buffer - bbox.x * proposedScale;
+    const minTx = view.x + buffer - (bbox.x + bbox.width) * proposedScale;
+    const maxTx = view.x + view.width - buffer - bbox.x * proposedScale;
 
-    const minTy = buffer - (bbox.y + bbox.height) * proposedScale;
-    const maxTy = view.height - buffer - bbox.y * proposedScale;
+    const minTy = view.y + buffer - (bbox.y + bbox.height) * proposedScale;
+    const maxTy = view.y + view.height - buffer - bbox.y * proposedScale;
 
     return {
       tx: Math.min(maxTx, Math.max(minTx, proposedTx)),
@@ -623,7 +522,7 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const clamped = clampTranslation(tx, ty, scale);
     tx = clamped.tx;
     ty = clamped.ty;
-    zoomLayer.setAttribute('transform', `scale(${scale}) translate(${tx},${ty})`);
+    zoomLayer.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
   }
 
   function zoomAt(newScale, cx, cy) {
@@ -717,12 +616,12 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     const scaleY = (view.height * pad) / bbox.height;
     const fitScale = Math.min(scaleX, scaleY);
 
-    scale = Math.min(3, Math.max(0.25, fitScale));
+    scale = Math.min(3, fitScale);
 
     const layerW = bbox.width * scale;
     const layerH = bbox.height * scale;
-    tx = (view.width - layerW) / 2 - bbox.x * scale;
-    ty = (view.height - layerH) / 2 - bbox.y * scale;
+    tx = view.x + (view.width - layerW) / 2 - bbox.x * scale;
+    ty = view.y + (view.height - layerH) / 2 - bbox.y * scale;
 
     applyTransform();
   }
@@ -746,17 +645,6 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     if (resetBtn?.onclick === resetView) resetBtn.onclick = null;
   };
 
-  function getContentBBox() {
-    try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
-  }
-  function getViewSizeInSvgCoords() {
-    const rect = svg.getBoundingClientRect();
-    const ptTL = svg.createSVGPoint(); ptTL.x = 0; ptTL.y = 0;
-    const ptBR = svg.createSVGPoint(); ptBR.x = rect.width; ptBR.y = rect.height;
-    const svgTL = ptTL.matrixTransform(svg.getScreenCTM().inverse());
-    const svgBR = ptBR.matrixTransform(svg.getScreenCTM().inverse());
-    return { width: svgBR.x - svgTL.x, height: svgBR.y - svgTL.y };
-  }
 }
 
 // Build graph nodes and logical links from the expanded chain
@@ -1661,10 +1549,27 @@ function renderActivePlan() {
   history.replaceState(null, "", "?" + params.toString());
 }
 
+function getNaturalRateForSelected() {
+  const item = document.getElementById('itemSelect')?.value;
+  const tier = document.getElementById('tierSelect')?.value === 'v2' ? 'v2' : 'v1';
+  const recipe = getRecipe(item, tier);
+  return recipe ? (recipe.output * 60) / recipe.time : null;
+}
+
+function resetRateToRecipe() {
+  const rateInput = document.getElementById('rateInput');
+  const rate = getNaturalRateForSelected();
+  if (rateInput) rateInput.value = rate !== null ? rate : '';
+}
+
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
-  const rateRaw = document.getElementById('rateInput').value;
-  const rate = parseFloat(rateRaw);
+  const rateInput = document.getElementById('rateInput');
+  let rate = parseFloat(rateInput.value);
+  if (Number.isFinite(rate) && rate <= 0) {
+    resetRateToRecipe();
+    rate = parseFloat(rateInput.value);
+  }
 
   if (!Object.hasOwn(RECIPES, item) || !Number.isFinite(rate) || rate <= 0 || rate > 1000000000) {
     document.getElementById("outputArea").innerHTML = "<p style='color:red;'>Please select an item and enter a valid rate.</p>";
@@ -1730,7 +1635,7 @@ async function init() {
   `;
 
   // Reset rate input
-  if (rateInput) { rateInput.value = ""; rateInput.dataset.manual = ""; rateInput.placeholder = "Rate (/min)"; }
+  if (rateInput) { rateInput.value = ""; rateInput.placeholder = "Rate (/min)"; }
 
   // Populate item select with placeholder + filtered items
   if (itemSelect) {
@@ -1740,57 +1645,23 @@ async function init() {
       items.map(it => `<option value="${escapeHtml(it)}">${escapeHtml(it)}</option>`).join("");
   }
 
-  // Helper: compute natural/base rate for the currently selected item
-  function getNaturalPerMinForSelected() {
-    const slug = itemSelect?.value;
-    const recipe = RECIPES[slug];
-    if (!recipe || !recipe.output || !recipe.time) return null;
-    return Math.round((recipe.output / recipe.time) * 60);
-  }
-
   // Rate input behavior
   if (itemSelect && rateInput) {
-    itemSelect.addEventListener("change", () => {
-      const naturalPerMin = getNaturalPerMinForSelected();
-      if (!rateInput.dataset.manual) {
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      }
-      if (rateInput.value.trim() === "") {
-        rateInput.dataset.manual = "";
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      }
-    });
+    itemSelect.addEventListener("change", resetRateToRecipe);
 
     rateInput.addEventListener("input", () => {
-      const rawVal = rateInput.value;
-      if (rawVal.trim() === "") return;
-      const numeric = Number(rawVal);
-      if (!Number.isNaN(numeric)) rateInput.dataset.manual = "true";
+      if (rateInput.value.trim() !== '' && Number(rateInput.value) <= 0) resetRateToRecipe();
     });
 
     rateInput.addEventListener("blur", () => {
-      if (rateInput.value.trim() === "") {
-        rateInput.dataset.manual = "";
-        const naturalPerMin = getNaturalPerMinForSelected();
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-      } else {
-        rateInput.dataset.manual = "true";
-      }
+      if (rateInput.value.trim() === '' || Number(rateInput.value) <= 0) resetRateToRecipe();
     });
 
     rateInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        if (rateInput.value.trim() === "") {
-          rateInput.dataset.manual = "";
-          const naturalPerMin = getNaturalPerMinForSelected();
-          rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
-        } else {
-          rateInput.dataset.manual = "true";
-        }
+        if (rateInput.value.trim() === '' || Number(rateInput.value) <= 0) resetRateToRecipe();
       } else if (e.key === "Escape") {
-        rateInput.dataset.manual = "";
-        const naturalPerMin = getNaturalPerMinForSelected();
-        rateInput.value = naturalPerMin !== null ? naturalPerMin : "";
+        resetRateToRecipe();
         rateInput.focus();
       }
     });
@@ -1809,7 +1680,7 @@ async function init() {
     const opt = Array.from(itemSelect.options).find(o => o.value === sharedItem);
     if (opt) itemSelect.value = sharedItem;
   }
-  if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
+  if (sharedRate && rateInput) rateInput.value = sharedRate;
   if (sharedRail && railSelect && [...railSelect.options].some(option => option.value === sharedRail)) railSelect.value = sharedRail;
   if (sharedTier === 'v1' || sharedTier === 'v2') tierSelect.value = sharedTier;
   try {
@@ -1831,7 +1702,6 @@ async function init() {
   const clearBtn = document.getElementById("clearStateBtn");
   if (clearBtn) {
     clearBtn.addEventListener("click", () => {
-      if (rateInput) rateInput.dataset.manual = "";
       // Reset to this same page with no query params, regardless of domain/environment.
       window.location.href = window.location.origin + window.location.pathname;
     });
