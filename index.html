@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>StarRupture Crafting Calculator</title>
 
   <!-- Favicon -->
   <link rel="icon" href="data/SRCC_Icon.png" type="image/png">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20261003-footer" />
 </head>
 
 <body>
@@ -62,10 +63,10 @@
         <option value="1500">v5 (1500/min)</option>
       </select>
 
-      <label for="tierSelect">Machine Tier:</label>
+      <label for="tierSelect">Starting Tier:</label>
       <select id="tierSelect">
-        <option value="v1" selected>v1 (Standard)</option>
-        <option value="v2">v2 (Upgraded)</option>
+        <option value="v1" selected>All v1 (Standard)</option>
+        <option value="v2">All v2 (Upgraded)</option>
       </select>
 
       <button id="calcButton">Calculate</button>
@@ -81,11 +82,16 @@
       <h4>How to Use</h4>
       <ul>
         <li><strong>Select an item</strong> from the dropdown to choose the product you want to plan.</li>
-        <li><strong>Enter your target rate</strong> (units per minute) and click Calculate to expand the full production chain.</li>
-        <li><strong>Inspect the graph</strong> — click a node to highlight only its immediate inputs; click again to clear the highlight.</li>
+        <li><strong>Set your target rate</strong> (units per minute), Rail Type, and Starting Tier (all v1 or all v2 where available). Click Calculate to expand the full production chain.</li>
+        <li><strong>Mix machine tiers</strong> by clicking a row's v1 or v2 button. Production and Ore Excavator requirements update immediately, without another Calculate click. Blank tier cells mean there is no alternate version.</li>
+        <li><strong>Change your setup</strong> at the top and click Calculate to apply it. Applying a different Starting Tier resets individual tier choices.</li>
+        <li><strong>Inspect the graph</strong> by clicking or tapping a node to pulse it and only its immediate inputs. Click again, click the background, or press Escape to clear. Enter or Space selects a focused node; reduced-motion settings use a static highlight.</li>
         <li><strong>Pan and zoom</strong> freely; use Reset view to recenter the graph if you lose your place.</li>
-        <li><strong>View totals</strong> in the right‑hand tables for machine counts and raw extraction needs.</li>
-        <li><strong>Share setups</strong> with the Share button to generate a link that preserves item, rate, and rail settings.</li>
+        <li><strong>View production details</strong> by crafting level, including output per machine, machine counts, input rates, and rails needed at your selected rail capacity.</li>
+        <li><strong>View totals</strong> in the summary tables for machines and raw extraction needs, including Impure, Normal, and Pure ore deposits where applicable.</li>
+        <li><strong>Use on mobile</strong> with touch-friendly controls and horizontally scrolling tables. Production item names stay visible as you scroll.</li>
+        <li><strong>Share setups</strong> with the Share button to copy a link that preserves the calculated item, rate, rail, Starting Tier, and individual tier choices. Opening the link restores the plan.</li>
+        <li><strong>Start fresh</strong> with Clear to reset the setup and tier choices. Use the theme button to switch between light and dark mode.</li>
       </ul>
 
       <h4>Issues, Ideas, or Corrections</h4>
@@ -107,7 +113,7 @@
   <!-- ============================
        MAIN SCRIPT
   ============================= -->
-  <script src="app.js"></script>
+  <script src="app.js?v=20261003-security"></script>
 
 
   <!-- ⭐ Ko-fi Floating Support Button -->
@@ -122,6 +128,8 @@
   </script>
 
   <div id="toastContainer"></div>
+
+  <footer class="site-ownership"><small>&copy; 2026 GGforReals. All rights reserved. Site owned and maintained by GGforReals.</small></footer>
 
 </body>
 </html>

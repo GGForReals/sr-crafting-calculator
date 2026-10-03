@@ -10,6 +10,7 @@ import { writeFile, mkdir, readFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { validateRecipeDataset } from '../lib/recipeValidation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_PATH = path.join(__dirname, '..', 'data', 'recipes.json');
@@ -37,7 +38,7 @@ const NAME_CORRECTIONS = {
 };
 
 function correctName(name) {
-  return NAME_CORRECTIONS[name] || name;
+  return Object.hasOwn(NAME_CORRECTIONS, name) ? NAME_CORRECTIONS[name] : name;
 }
 
 function correctInputs(inputs) {
@@ -45,7 +46,7 @@ function correctInputs(inputs) {
 }
 
 function applyNameCorrections(recipes) {
-  const corrected = {};
+  const corrected = Object.create(null);
   for (const [name, recipe] of Object.entries(recipes)) {
     const fixed = { ...recipe, inputs: correctInputs(recipe.inputs) };
     if (fixed.altBuilding) {
@@ -109,7 +110,7 @@ function extractCrafting() {
   const content = section?.querySelector('[data-slot="card-content"]');
   if (!content) return null;
 
-  const result = { building: null, inputs: {}, outputQty: 1, time: null };
+  const result = { building: null, inputs: Object.create(null), outputQty: 1, time: null };
   for (const group of Array.from(content.children)) {
     const label = group.querySelector('h3')?.textContent.trim();
     if (label === 'Building') {
@@ -133,8 +134,15 @@ function extractCrafting() {
   return result;
 }
 
+export function getItemPageUrl(value) {
+  if (typeof value !== 'string' || !value.startsWith('/items/') || value.length > 2000) throw new Error('Invalid item page path.');
+  const url = new URL(value, 'https://starrupture.tools');
+  if (url.origin !== 'https://starrupture.tools' || !url.pathname.startsWith('/items/')) throw new Error('Invalid item page origin.');
+  return url.href;
+}
+
 async function scrapeItem(page, item) {
-  const url = `https://starrupture.tools${item.url}`;
+  const url = getItemPageUrl(item.url);
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -165,7 +173,7 @@ function extractBuildingRecipes() {
     const itemName = outputSection?.querySelector('a[href^="/items/"]')?.textContent.trim() ?? null;
     const outputQtyText = outputSection?.querySelector('div.ml-auto')?.textContent.trim() ?? 'x1';
 
-    const inputs = {};
+    const inputs = Object.create(null);
     for (const sec of Array.from(cells[1]?.querySelectorAll('section') ?? [])) {
       const a = sec.querySelector('a[href^="/items/"]');
       if (!a) continue;
@@ -225,7 +233,7 @@ export function decideRecipeWrite(liveCount, previousCount, minimumLiveRecipeCou
 async function loadPreviousRecipes() {
   try {
     await access(OUTPUT_PATH, constants.F_OK);
-    return JSON.parse(await readFile(OUTPUT_PATH, 'utf8'));
+    return validateRecipeDataset(JSON.parse(await readFile(OUTPUT_PATH, 'utf8')));
   } catch {
     return null;
   }
@@ -238,7 +246,7 @@ async function main() {
 
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  const recipes = {};
+  const recipes = Object.create(null);
 
   for (const [index, item] of items.entries()) {
     const crafting = await scrapeItem(page, item);
@@ -268,7 +276,7 @@ async function main() {
 
   // Fill in items the site doesn't classify as craftable resources (e.g. ammo),
   // but only where the live scrape didn't already produce that recipe.
-  const manualRecipes = JSON.parse(await readFile(MANUAL_RECIPES_PATH, 'utf8'));
+  const manualRecipes = validateRecipeDataset(JSON.parse(await readFile(MANUAL_RECIPES_PATH, 'utf8')));
   let manualAddedCount = 0;
   for (const [name, recipe] of Object.entries(manualRecipes)) {
     if (!recipes[name]) {
@@ -315,6 +323,7 @@ async function main() {
 
   const correctedRecipes = applyNameCorrections(recipes);
   const sorted = Object.fromEntries(Object.keys(correctedRecipes).sort().map((k) => [k, correctedRecipes[k]]));
+  validateRecipeDataset(sorted);
   const previousRecipes = await loadPreviousRecipes();
   const decision = decideRecipeWrite(
     Object.keys(sorted).length,

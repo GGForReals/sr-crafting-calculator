@@ -7,20 +7,24 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: update-crafting-recipes
+  cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -29,68 +33,56 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      - name: Run regression and security tests
+        run: npm test
+
       - name: Scrape recipes.json from starrupture.tools
         run: npm run scrape-recipes
 
       - name: Validate generated dataset
-        run: |
-          node - <<'NODE'
-          const fs = require('fs');
-          const file = 'data/recipes.json';
+        run: node scripts/validate-recipes.mjs
 
-          if (!fs.existsSync(file)) {
-            throw new Error('data/recipes.json was not generated.');
-          }
+      - name: Upload validated recipes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: validated-recipes
+          path: data/recipes.json
+          if-no-files-found: error
+          retention-days: 3
 
-          const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-          const count = Object.keys(data || {}).length;
+  publish:
+    needs: scrape
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          persist-credentials: false
 
-          if (!data || typeof data !== 'object' || Array.isArray(data) || count < 10) {
-            throw new Error(`Generated dataset appears invalid: ${count} recipe entries.`);
-          }
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
 
-          console.log(`Validated data/recipes.json with ${count} recipes.`);
-          NODE
+      - name: Download validated recipes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: validated-recipes
+          path: data
 
-      - name: Summarize recipe update result
-        if: always()
-        shell: bash
-        run: |
-          if [ -f data/recipes.json ]; then
-            count=$(node -p "Object.keys(JSON.parse(require('fs').readFileSync('data/recipes.json', 'utf8')) || {}).length")
-            {
-              echo "### Recipe update summary"
-              echo
-              echo "- Generated recipe count: $count"
-              echo "- Source: starrupture.tools"
-              echo "- Result: dataset validated successfully"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "Recipe update summary: $count recipes"
-          else
-            {
-              echo "### Recipe update summary"
-              echo
-              echo "- Result: no dataset was generated"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Report final status
-        if: always()
-        shell: bash
-        run: |
-          if git diff --quiet -- data/recipes.json; then
-            echo "Final status: kept the last known-good recipe dataset"
-            echo "Final status: kept the last known-good recipe dataset" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Final status: wrote a fresh recipe dataset"
-            echo "Final status: wrote a fresh recipe dataset" >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - name: Revalidate before publishing
+        run: node scripts/validate-recipes.mjs
 
       - name: Commit and push if changed
+        env:
+          PUBLISH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/recipes.json
+          git add -- data/recipes.json
 
           if git diff --cached --quiet; then
             echo "No recipe changes to commit. Keeping existing dataset."
@@ -98,4 +90,7 @@ jobs:
           fi
 
           git commit -m "Auto-update recipes.json"
-          git push
+          auth=$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:main
+          echo "Published schema-validated recipe data." >> "$GITHUB_STEP_SUMMARY"

@@ -5,6 +5,7 @@
   "description": "StarRupture Crafting Calculator - static site + recipe scraper",
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "scrape-recipes": "node scripts/scrape-recipes.mjs"
   },
   "devDependencies": {

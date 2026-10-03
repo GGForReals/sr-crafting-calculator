@@ -1,4 +1,4 @@
-// app.js - Rewritten, complete file (pulse mechanics removed)
+// app.js - Crafting calculator and interactive production graph
 // - loadRecipes: data-only (no DOM mutations)
 // - init: canonical initializer, populates UI and wires handlers
 // - Full renderGraph and zoom/pan implementations restored from banked code
@@ -47,7 +47,6 @@ const SPECIAL_EXTRACTORS = {
 
 const DRAG_THRESHOLD_PX = 8;
 const TOUCH_THRESHOLD_PX = 12;
-const PULSE_PROPAGATION_DEPTH = 1;
 const PULSE_STAGGER_MS = 90;
 
 const FORCED_RAW_ORES = ['Calcium Ore', 'Titanium Ore', 'Wolfram Ore'];
@@ -60,8 +59,21 @@ const BBM_ID = 'Basic Building Material';
 let RECIPES = {};
 let TIERS = {};
 
-// 'v1' or 'v2' — which machine tier's recipe/extraction rate to prefer when both exist.
-let MACHINE_TIER = 'v1';
+let ITEM_TIER_OVERRIDES = new Map();
+let ACTIVE_PLAN = null;
+let SELECTED_GRAPH_NODE = null;
+
+function getItemTier(name) {
+  return ITEM_TIER_OVERRIDES.get(name) || ACTIVE_PLAN?.tier || 'v1';
+}
+
+function renderItemTierToggle(name) {
+  const selectedTier = getItemTier(name);
+  const nextTier = selectedTier === 'v1' ? 'v2' : 'v1';
+  return `<button type="button" class="item-tier-toggle" data-tier-item="${escapeHtml(name)}" value="${selectedTier}" aria-label="Upgraded machine for ${escapeHtml(name)}" aria-pressed="${selectedTier === 'v2'}" title="Switch ${escapeHtml(name)} to ${nextTier}">
+    <span class="is-active" aria-hidden="true">${selectedTier}</span>
+  </button>`;
+}
 
 function isTierTwoBuilding(buildingName) {
   return /v\.\d+$/.test(buildingName || '');
@@ -227,17 +239,18 @@ async function fetchJson(url) {
 }
 
 async function loadRecipes() {
+  const { validateRecipeDataset } = await import('./lib/recipeValidation.js');
   const localPath = "data/recipes.json";
   const remotePath = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
 
   let data = null;
   try {
-    data = await fetchJson(localPath);
+    data = validateRecipeDataset(await fetchJson(localPath));
     console.info("Loaded recipes from local data/recipes.json");
   } catch (localErr) {
     console.warn("Local recipes.json not found or failed to load, falling back to remote:", localErr);
     try {
-      data = await fetchJson(remotePath);
+      data = validateRecipeDataset(await fetchJson(remotePath));
       console.info("Loaded recipes from remote URL");
     } catch (remoteErr) {
       console.error("Failed to load recipes from remote URL as well:", remoteErr);
@@ -293,11 +306,12 @@ async function loadRecipes() {
    Expand production chain
    =============================== */
 function getRecipe(name) {
+  if (!Object.hasOwn(RECIPES, name)) return null;
   const base = RECIPES[name];
   if (!base) return null;
   if (!base.altBuilding) return base;
 
-  const wantV2 = MACHINE_TIER === 'v2';
+  const wantV2 = getItemTier(name) === 'v2';
   const baseIsV2 = isTierTwoBuilding(base.building);
   if (wantV2 === baseIsV2) return base;
 
@@ -507,13 +521,6 @@ function computeDepthsFromTiers(chain, rootItem) {
 }
 
 /* ===============================
-   Helper: detect if pointer target is a node
-   =============================== */
-function pointerIsOnNode(ev) {
-  return !!(ev.target && ev.target.closest && ev.target.closest('g.graph-node[data-id]'));
-}
-
-/* ===============================
    Zoom / pan utilities (pointer-based)
    =============================== */
 function ensureResetButton() {
@@ -573,6 +580,9 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   let startX = 0;
   let startY = 0;
   let activePointerId = null;
+  let pointerStartX = 0;
+  let pointerStartY = 0;
+  let dragThreshold = DRAG_THRESHOLD_PX;
 
   function getContentBBox() {
     const vb = svg.viewBox.baseVal;
@@ -634,27 +644,37 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
-  svg.addEventListener('wheel', (ev) => {
+  function onWheel(ev) {
     ev.preventDefault();
     const delta = -ev.deltaY;
     const factor = delta > 0 ? 1.08 : 0.92;
     const newScale = Math.min(3, Math.max(0.25, +(scale * factor).toFixed(3)));
     zoomAt(newScale, ev.clientX, ev.clientY);
-  }, { passive: false });
+  }
+  svg.addEventListener('wheel', onWheel, { passive: false });
 
-  svg.addEventListener('pointerdown', (ev) => {
-    if (pointerIsOnNode(ev)) return;
+  function onPointerDown(ev) {
     if (ev.button !== 0) return;
+    if (!ev.isPrimary) return;
     isPanning = true;
+    svg._graphPointerDragged = false;
     activePointerId = ev.pointerId;
     startX = ev.clientX;
     startY = ev.clientY;
-    try { svg.setPointerCapture(ev.pointerId); } catch (e) {}
-    svg.style.cursor = 'grabbing';
-  });
+    pointerStartX = ev.clientX;
+    pointerStartY = ev.clientY;
+    dragThreshold = ev.pointerType === 'touch' ? TOUCH_THRESHOLD_PX : DRAG_THRESHOLD_PX;
+  }
+  svg.addEventListener('pointerdown', onPointerDown);
 
-  window.addEventListener('pointermove', (ev) => {
+  function onPointerMove(ev) {
     if (!isPanning || ev.pointerId !== activePointerId) return;
+    if (!svg._graphPointerDragged) {
+      if (Math.hypot(ev.clientX - pointerStartX, ev.clientY - pointerStartY) < dragThreshold) return;
+      svg._graphPointerDragged = true;
+      try { svg.setPointerCapture(ev.pointerId); } catch (e) {}
+      svg.style.cursor = 'grabbing';
+    }
     const dxScreen = ev.clientX - startX;
     const dyScreen = ev.clientY - startY;
     startX = ev.clientX;
@@ -670,15 +690,18 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     tx += dxSvg;
     ty += dySvg;
     applyTransform();
-  });
+  }
+  window.addEventListener('pointermove', onPointerMove);
 
-  window.addEventListener('pointerup', (ev) => {
+  function onPointerEnd(ev) {
     if (!isPanning || ev.pointerId !== activePointerId) return;
     isPanning = false;
     activePointerId = null;
     try { svg.releasePointerCapture(ev.pointerId); } catch (e) {}
     svg.style.cursor = 'grab';
-  });
+  }
+  window.addEventListener('pointerup', onPointerEnd);
+  window.addEventListener('pointercancel', onPointerEnd);
 
   svg.style.cursor = 'grab';
 
@@ -704,17 +727,24 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
-   if (resetBtn) {
-     resetBtn.onclick = () => {
-       computeAutoFit();
-       showToast("View reset");
-     };
-   }
+  function resetView() {
+    computeAutoFit();
+    showToast("View reset");
+  }
+  if (resetBtn) resetBtn.onclick = resetView;
 
-  if (autoFit) requestAnimationFrame(() => computeAutoFit());
-  else applyTransform();
+  const autoFitFrame = autoFit ? requestAnimationFrame(() => computeAutoFit()) : null;
+  if (!autoFit) applyTransform();
 
-  containerEl._teardownGraphZoom = () => { /* no-op */ };
+  containerEl._teardownGraphZoom = () => {
+    if (autoFitFrame !== null) cancelAnimationFrame(autoFitFrame);
+    svg.removeEventListener('wheel', onWheel);
+    svg.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerEnd);
+    window.removeEventListener('pointercancel', onPointerEnd);
+    if (resetBtn?.onclick === resetView) resetBtn.onclick = null;
+  };
 
   function getContentBBox() {
     try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
@@ -1302,7 +1332,7 @@ function renderGraph(nodes, links, rootItem) {
         : "";
 
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}" tabindex="0">
+      <g class="graph-node" data-id="${escapeHtml(node.id)}" data-inputs="${escapeHtml(JSON.stringify(Object.keys(node.inputs || {})))}" tabindex="0" role="button" aria-label="Inspect inputs for ${escapeHtml(node.id)}" aria-pressed="false">
         <!-- label box -->
         <rect
           x="${node.x - width / 2}"
@@ -1361,7 +1391,6 @@ function renderGraph(nodes, links, rootItem) {
   `;
 }
 
-// Minimal guarded attachNodePointerHandlers that does not trigger pulses
 function attachNodePointerHandlers(wrapper) {
   if (!wrapper) return;
   if (wrapper._nodePointerHandlersInstalled) return;
@@ -1370,15 +1399,59 @@ function attachNodePointerHandlers(wrapper) {
   const svg = wrapper.querySelector('svg.graphSVG');
   if (!svg) return;
 
-  // Keyboard accessibility only
-  svg.querySelectorAll('g.graph-node[data-id]').forEach(group => {
-    group.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        // reserved for future actions
-      }
-    });
+  const groups = [...svg.querySelectorAll('g.graph-node[data-id]')];
+
+  function updateSelection() {
+    const selected = groups.find(group => group.dataset.id === SELECTED_GRAPH_NODE);
+    if (!selected) SELECTED_GRAPH_NODE = null;
+    const inputs = selected ? JSON.parse(selected.dataset.inputs) : [];
+    for (const group of groups) {
+      const isSelected = group === selected;
+      const inputIndex = inputs.indexOf(group.dataset.id);
+      group.classList.toggle('graph-selected', isSelected);
+      group.classList.toggle('graph-input', inputIndex >= 0);
+      group.classList.toggle('graph-pulsing', isSelected || inputIndex >= 0);
+      group.setAttribute('aria-pressed', String(isSelected));
+      group.style.setProperty('--pulse-delay', `${inputIndex >= 0 ? (inputIndex + 1) * PULSE_STAGGER_MS : 0}ms`);
+    }
+    if (selected) svg.dataset.selectedNode = SELECTED_GRAPH_NODE;
+    else delete svg.dataset.selectedNode;
+  }
+
+  function toggleSelection(group) {
+    SELECTED_GRAPH_NODE = SELECTED_GRAPH_NODE === group.dataset.id ? null : group.dataset.id;
+    updateSelection();
+  }
+
+  function activatePointerTarget(event) {
+    if (svg._graphPointerDragged) return;
+    const group = event.target.closest('g.graph-node[data-id]');
+    if (group) {
+      group.focus({ preventScroll: true });
+      toggleSelection(group);
+    } else {
+      SELECTED_GRAPH_NODE = null;
+      updateSelection();
+    }
+  }
+  svg.addEventListener('click', event => {
+    if (event.pointerType !== 'touch') activatePointerTarget(event);
   });
+  svg.addEventListener('pointerup', event => {
+    if (event.pointerType === 'touch') activatePointerTarget(event);
+  });
+  svg.addEventListener('keydown', event => {
+    const group = event.target.closest('g.graph-node[data-id]');
+    if (!group) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleSelection(group);
+    } else if (event.key === 'Escape') {
+      SELECTED_GRAPH_NODE = null;
+      updateSelection();
+    }
+  });
+  updateSelection();
 }
 
 /* ===============================
@@ -1389,7 +1462,7 @@ function computeRailsNeeded(inputRates, railSpeed) {
   return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
 }
 
-function renderTable(chainObj, rootItem, rate) {
+function renderTable(chainObj, rootItem, rate, railSpeed) {
   const { chain, machineTotals, extractorTotals } = chainObj;
 
   // Build graph data (nodes + links) and ensure depths are attached
@@ -1472,6 +1545,7 @@ function renderTable(chainObj, rootItem, rate) {
           <th>Output/machine</th>
           <th>Machines</th>
           <th>Machine Type</th>
+          <th>Machine Tier</th>
           <th>Inputs (per min)</th>
           <th>Rails Needed</th>
         </tr>
@@ -1485,7 +1559,7 @@ function renderTable(chainObj, rootItem, rate) {
     if (!rows.length) continue;
 
     const levelLabel = depthToLevelIndex[depth] ?? 0;
-    html += `<tr><td colspan="7"><strong>--- Level ${levelLabel} ---</strong></td></tr>`;
+    html += `<tr><td colspan="8"><strong>--- Level ${levelLabel} ---</strong></td></tr>`;
 
     // Sort items alphabetically within the level for stable ordering
     rows.sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
@@ -1502,7 +1576,6 @@ function renderTable(chainObj, rootItem, rate) {
         outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
       }
       machines = Number.isFinite(Number(data.machines)) ? Math.ceil(data.machines) : "—";
-      const railSpeed = parseInt(document.getElementById("railSelect")?.value || 0);
       railsNeeded = computeRailsNeeded(data.inputs || {}, railSpeed);
 
       // Inputs: list each input as "Name: X/min" sorted by name; include raw inputs if present
@@ -1518,6 +1591,7 @@ function renderTable(chainObj, rootItem, rate) {
           <td>${outputPerMachine}</td>
           <td>${machines}</td>
           <td style="background-color:${fillColor}; color:#ffffff; text-shadow: 0 0 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.85);">${escapeHtml(data.building || "—")}</td>
+          <td>${RECIPES[item]?.altBuilding ? renderItemTierToggle(item) : ''}</td>
           <td>${inputsList}</td>
           <td>${railsNeeded}</td>
         </tr>
@@ -1542,26 +1616,26 @@ function renderTable(chainObj, rootItem, rate) {
 
   // Extraction summary
   html += `
-    <h3>EXTRACTION REQUIRED (Ore Excavator ${escapeHtml(MACHINE_TIER)})</h3>
+    <h3>EXTRACTION REQUIRED</h3>
     <table>
       <thead>
-        <tr><th>Resource</th><th>Impure</th><th>Normal</th><th>Pure</th><th>Qty/min</th></tr>
+        <tr><th>Resource</th><th>Machine Tier</th><th>Impure</th><th>Normal</th><th>Pure</th><th>Qty/min</th></tr>
       </thead>
       <tbody>
   `;
 
   const sortedExtractors = Object.entries(extractorTotals || {}).filter(([_, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
-  const oreRates = ORE_EXCAVATOR_RATES[MACHINE_TIER] || ORE_EXCAVATOR_RATES.v1;
   for (const [resource, qty] of sortedExtractors) {
     const rounded = Math.ceil(qty);
     if (SPECIAL_EXTRACTORS[resource]) {
       const normal = Math.ceil(rounded / SPECIAL_EXTRACTORS[resource]);
-      html += `<tr><td>${escapeHtml(resource)}</td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
+      html += `<tr><td>${escapeHtml(resource)}</td><td></td><td>—</td><td>${normal}</td><td>—</td><td>${rounded}</td></tr>`;
     } else {
+      const oreRates = ORE_EXCAVATOR_RATES[getItemTier(resource)] || ORE_EXCAVATOR_RATES.v1;
       const impure = Math.ceil(rounded / oreRates.impure);
       const normal = Math.ceil(rounded / oreRates.normal);
       const pure = Math.ceil(rounded / oreRates.pure);
-      html += `<tr><td>${escapeHtml(resource)}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
+      html += `<tr><td>${escapeHtml(resource)}</td><td>${renderItemTierToggle(resource)}</td><td>${impure}</td><td>${normal}</td><td>${pure}</td><td>${rounded}</td></tr>`;
     }
   }
 
@@ -1575,24 +1649,34 @@ function renderTable(chainObj, rootItem, rate) {
 /* ===============================
    Run calculator & UI wiring
    =============================== */
+function renderActivePlan() {
+  const { item, rate, rail, tier } = ACTIVE_PLAN;
+  const chainObj = expandChain(item, rate);
+  renderTable(chainObj, item, rate, Number(rail));
+
+  const params = new URLSearchParams({ item, rate, rail, tier });
+  if (ITEM_TIER_OVERRIDES.size) {
+    params.set('tiers', JSON.stringify(Object.fromEntries([...ITEM_TIER_OVERRIDES].sort(([first], [second]) => first.localeCompare(second)))));
+  }
+  history.replaceState(null, "", "?" + params.toString());
+}
+
 function runCalculator() {
   const item = document.getElementById('itemSelect').value;
   const rateRaw = document.getElementById('rateInput').value;
   const rate = parseFloat(rateRaw);
 
-  if (!item || isNaN(rate) || rate <= 0) {
+  if (!Object.hasOwn(RECIPES, item) || !Number.isFinite(rate) || rate <= 0 || rate > 1000000000) {
     document.getElementById("outputArea").innerHTML = "<p style='color:red;'>Please select an item and enter a valid rate.</p>";
     return;
   }
 
-  MACHINE_TIER = document.getElementById("tierSelect")?.value === 'v2' ? 'v2' : 'v1';
-
-  const chainObj = expandChain(item, rate);
-  renderTable(chainObj, item, rate);
-
   const rail = document.getElementById("railSelect").value;
-  const params = new URLSearchParams({ item, rate, rail, tier: MACHINE_TIER });
-  history.replaceState(null, "", "?" + params.toString());
+  const tier = document.getElementById("tierSelect").value === 'v2' ? 'v2' : 'v1';
+  if (ACTIVE_PLAN && ACTIVE_PLAN.tier !== tier) ITEM_TIER_OVERRIDES.clear();
+  ACTIVE_PLAN = { item, rate, rail, tier };
+  SELECTED_GRAPH_NODE = null;
+  renderActivePlan();
 }
 
 /* ===============================
@@ -1617,6 +1701,24 @@ async function init() {
   const itemSelect = document.getElementById('itemSelect');
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
+  const outputArea = document.getElementById("outputArea");
+  outputArea?.addEventListener('click', event => {
+    const button = event.target.closest('button[data-tier-item]');
+    if (!button || !ACTIVE_PLAN || !['v1', 'v2'].includes(button.value)) return;
+    const name = button.dataset.tierItem;
+    const nextTier = button.value === 'v1' ? 'v2' : 'v1';
+    const previousTop = button.getBoundingClientRect().top;
+    const previousScroll = outputArea.scrollLeft;
+    if (nextTier !== ACTIVE_PLAN.tier) ITEM_TIER_OVERRIDES.set(name, nextTier);
+    else ITEM_TIER_OVERRIDES.delete(name);
+    renderActivePlan();
+    outputArea.scrollLeft = previousScroll;
+    const replacement = [...outputArea.querySelectorAll('[data-tier-item]')].find(element => element.dataset.tierItem === name);
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      window.scrollBy(0, replacement.getBoundingClientRect().top - previousTop);
+    }
+  });
 
   // Populate rail select
   if (railSelect) railSelect.innerHTML = `
@@ -1708,25 +1810,23 @@ async function init() {
     if (opt) itemSelect.value = sharedItem;
   }
   if (sharedRate && rateInput) { rateInput.value = sharedRate; rateInput.dataset.manual = "true"; }
-  if (sharedRail && railSelect) railSelect.value = sharedRail;
-  if (sharedTier && tierSelect && (sharedTier === 'v1' || sharedTier === 'v2')) tierSelect.value = sharedTier;
+  if (sharedRail && railSelect && [...railSelect.options].some(option => option.value === sharedRail)) railSelect.value = sharedRail;
+  if (sharedTier === 'v1' || sharedTier === 'v2') tierSelect.value = sharedTier;
+  try {
+    const sharedOverrides = JSON.parse(params.get('tiers') || '{}');
+    if (sharedOverrides && typeof sharedOverrides === 'object' && !Array.isArray(sharedOverrides)) {
+      for (const [name, tier] of Object.entries(sharedOverrides)) {
+        if ((tier === 'v1' || tier === 'v2') && (RECIPES[name]?.altBuilding || FORCED_RAW_ORES.includes(name))) {
+          ITEM_TIER_OVERRIDES.set(name, tier);
+        }
+      }
+    }
+  } catch {}
   if (sharedItem && sharedRate && !sharedItem.startsWith('_')) runCalculator();
-
-  if (tierSelect) tierSelect.addEventListener("change", () => {
-    if (itemSelect?.value) runCalculator();
-  });
 
   // Buttons wiring
   const calcButton = document.getElementById("calcButton");
-  if (calcButton) calcButton.addEventListener("click", () => {
-    runCalculator();
-    const item = itemSelect?.value || "";
-    const rate = rateInput?.value || "";
-    const rail = railSelect?.value || "";
-    const tier = tierSelect?.value || "v1";
-    const newParams = new URLSearchParams({ item, rate, rail, tier });
-    history.replaceState(null, "", "?" + newParams.toString());
-  });
+  if (calcButton) calcButton.addEventListener("click", runCalculator);
 
   const clearBtn = document.getElementById("clearStateBtn");
   if (clearBtn) {

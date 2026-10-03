@@ -7,12 +7,16 @@ Maintained by GGforReals.
 ## 🔧 Features
 
 - Full production chain breakdown by crafting level, with an interactive pan/zoom graph
+- Click or tap a graph node to pulse it and its direct inputs; click again, click the background, or press Escape to clear. Enter and Space also select nodes, and reduced-motion users receive a static highlight
 - Machine type, output rate, and quantity calculations
-- **Machine Tier toggle (v1 / v2)** — switch between standard and upgraded building tiers (Fabricator, Furnace, Compounder, etc.) to see faster recipes where they exist
+- **Per-item machine tier toggles (v1 / v2)** — click once to switch standard or upgraded buildings for each production step where both recipes exist; fixed-version machines have an empty tier cell
+- Starting Tier selects all v1 or all v2 (where available) when Calculate generates the plan; changing the starting tier waits for Calculate and resets individual overrides when applied
 - Input material flow rates per minute
 - Rail throughput selector — v1 through v5 (120 / 240 / 480 / 750 / 1500 per minute)
 - Raw ore extraction breakdown (Impure / Normal / Pure), tier-aware for Ore Excavator v1 vs v2
+- Production and per-resource Ore Excavator tier changes update the displayed plan immediately, including its graph, machine counts, material requirements, and shareable link
 - Shareable links that preserve item, rate, rail, and machine tier settings
+- Mobile controls with touch-sized targets and horizontally scrolling tables with pinned production item names
 - Dark mode toggle for visual comfort
 - Instant browser access — no install required
 
@@ -33,7 +37,7 @@ The scraper:
 - Only includes buildings the site categorizes as `crafting`, `processing`, or `temperature` (automated
   factory machines) — player crafting stations and unimplemented buildings are excluded automatically
 - Attaches an alternate recipe (`altBuilding`) for items craftable in both a v.1 and v.2 tier building
-  (Fabricator, Furnace, Compounder), powering the Machine Tier toggle
+  (Fabricator, Furnace, Compounder), powering the per-item machine tier choices
 - Falls back to [scripts/manual-recipes.json](scripts/manual-recipes.json) for a small number of items
   (e.g. ammo types) that the site doesn't classify as automated recipes but are still craftable in-game
 
@@ -46,6 +50,13 @@ npm run scrape-recipes
 ```
 
 This replaces the previous Google Apps Script + Google Sheet + Cloudflare Worker pipeline, which is no longer used.
+
+## Tests
+
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the security review, completed checks, and unresolved hosting/third-party-script risks. Recipe data is validated in the browser, scraper, and publishing workflow.
+
+Run `npm test` after installing dependencies and Chromium. The browser regression test covers starting tiers, live mixed production and extraction tiers, isolation from pending setup edits, shared links (including legacy blanket-tier links), invalid overrides, Clear, and mobile layout, scroll, and focus preservation.
+Graph tests cover direct-input selection, raw resources, recipe redraws, keyboard activation, reduced motion, and mouse/touch panning without accidental selection.
 
 ## 🐛 Issues, Ideas, or Corrections
 

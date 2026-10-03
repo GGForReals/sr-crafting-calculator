@@ -56,6 +56,16 @@ transition: background 0.25s ease, color 0.25s ease;
 /* ============================
   Header / Banner
   ============================ */
+.site-ownership {
+text-align: left;
+margin-top: 24px;
+padding-bottom: 80px;
+color: var(--text);
+font-size: 12px;
+line-height: 1.5;
+}
+.site-ownership small { font-size: inherit; }
+
 header {
 position: relative;
 overflow: hidden;
@@ -96,6 +106,7 @@ padding: 8px 16px;
 cursor: pointer;
 border: 1px solid #444;
 background: rgba(221,221,221,0.9);
+color: #111;
 border-radius: 4px;
 font-weight: 700;
 transition: all 0.2s ease;
@@ -141,6 +152,13 @@ display: none;
 font-size: 14px;
 line-height: 1.4;
 }
+
+.info-panel ul {
+text-align: left;
+padding-left: 22px;
+line-height: 1.5;
+}
+.info-panel li + li { margin-top: 12px; }
 
 /* Visible state */
 .info-panel.open { display: block; }
@@ -210,6 +228,49 @@ text-align: left;
 table td {
 padding: 8px 12px;
 border: 1px solid #d0d0d0;
+}
+
+#outputArea {
+max-width: 100%;
+overflow-x: auto;
+}
+
+.item-tier-toggle {
+display: inline-grid;
+grid-template-columns: 1fr;
+width: 64px;
+height: 44px;
+box-sizing: border-box;
+padding: 3px;
+border: 1px solid #888;
+border-radius: 4px;
+background: var(--panel-bg);
+color: var(--text);
+font: inherit;
+}
+.item-tier-toggle span { display: flex; align-items: center; justify-content: center; border-radius: 2px; }
+.item-tier-toggle span.is-active { background: #246b50; color: #fff; font-weight: 700; }
+.item-tier-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 600px) {
+body { margin: 12px; }
+header { height: 144px; }
+#logoBox { top: 12px; left: 12px; transform: none; padding: 4px; }
+#siteLogo { height: 28px; max-width: 130px; }
+#titleBox { top: auto; bottom: 12px; width: min(320px, calc(100% - 24px)); transform: translateX(-50%); }
+#titleBox img { width: 100%; height: auto; max-height: 60px; }
+#darkModeToggle { top: 12px; right: 12px; transform: none; min-height: 44px; }
+#darkModeToggle:hover { transform: none; }
+#controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; gap: 10px; }
+#controls label { grid-column: 1; font-size: 14px; }
+#controls select, #controls input { grid-column: 2 / 4; box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; font: inherit; font-size: 16px; }
+#controls button, .item-tier-toggle, .graphResetButton button { min-height: 44px; font-size: 16px; }
+#infoButton { grid-column: 1 / -1; margin-right: 0; }
+#outputArea h2 { font-size: 20px; }
+#outputArea table:first-of-type { min-width: 960px; }
+#outputArea table:first-of-type th:first-child { position: sticky; left: 0; z-index: 1; }
+#outputArea table:first-of-type td:first-child:not([colspan]) { position: sticky; left: 0; background: var(--panel-bg); z-index: 1; }
+#graphArea { padding: 0 8px 12px; }
 }
 
 /* ============================
@@ -339,8 +400,20 @@ vector-effect: non-scaling-stroke;
 }
 
 /* Cursor styles for panning */
-.graphSVG { cursor: grab; display: block; }
+.graphSVG { cursor: grab; display: block; touch-action: none; }
 .graphSVG:active { cursor: grabbing; }
+
+.graph-node { cursor: pointer; }
+.graph-node:focus-visible { outline: none; }
+.graph-node:focus-visible > rect { stroke: var(--accent); }
+.graph-selected > rect, .graph-input > rect { stroke: var(--accent); }
+.graph-selected > circle, .graph-input > circle { stroke: var(--accent); }
+.graph-pulsing > circle { animation: graph-node-pulse 1400ms ease-in-out infinite; animation-delay: var(--pulse-delay, 0ms); }
+
+@keyframes graph-node-pulse {
+0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px var(--accent)); }
+50% { opacity: 0.65; filter: drop-shadow(0 0 8px var(--accent)); }
+}
 
 /* Optional: nicer scrollbars if enabled */
 .graphWrapper::-webkit-scrollbar { height: 10px; width: 10px; }
@@ -392,4 +465,5 @@ transition: opacity 0.25s ease, transform 0.25s ease;
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
 * { transition: none !important; }
+.graph-pulsing > circle { animation: none; filter: drop-shadow(0 0 3px var(--accent)); }
 }
