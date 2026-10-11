@@ -15,6 +15,7 @@ test('per-item tiers update the displayed plan immediately and survive shared li
         '/app.js': ['app.js', 'application/javascript'],
         '/style.css': ['style.css', 'text/css'],
         '/lib/recipeValidation.js': ['lib/recipeValidation.js', 'application/javascript'],
+        '/lib/railPlanning.js': ['lib/railPlanning.js', 'application/javascript'],
         '/data/recipes.json': ['data/recipes.json', 'application/json']
       };
       const asset = assets[url.pathname];
@@ -30,20 +31,20 @@ test('per-item tiers update the displayed plan immediately and survive shared li
     assert.equal(page.url(), 'http://calculator.test/');
     await page.click('#calcButton');
     assert.equal(await page.evaluate(() => isTierTwoBuilding(getRecipe('Liquid Helium').building)), true);
-    assert.ok((await page.locator('[data-tier-item]').evaluateAll(elements => elements.map(element => element.value))).every(value => value === 'v2'));
+    assert.ok((await page.locator('.machine-tier-toggle[aria-pressed="true"]').evaluateAll(elements => elements.map(element => element.value))).every(value => value === 'v2'));
     const allUpgraded = await page.locator('#outputArea').innerText();
     await page.selectOption('#tierSelect', 'v1');
     assert.equal(await page.locator('#outputArea').innerText(), allUpgraded);
     await page.click('#calcButton');
 
-    const wolfram = page.locator('[data-tier-item="Wolfram Powder"]');
-    const helium = page.locator('[data-tier-item="Liquid Helium"]');
+    const wolfram = page.locator('.machine-tier-toggle[data-tier-item="Wolfram Powder"]');
+    const helium = page.locator('.machine-tier-toggle[data-tier-item="Liquid Helium"]');
     const ore = page.locator('[data-tier-item="Wolfram Ore"]');
     assert.equal((await wolfram.innerText()).trim(), 'v1');
     const before = await page.locator('#outputArea').innerText();
     const beforeGraph = await page.locator('#graphArea').innerHTML();
     const beforeUrl = page.url();
-    await wolfram.click();
+    await page.locator('.machine-tier-toggle[data-tier-item="Wolfram Powder"]').click();
     await ore.click();
     assert.notEqual(await page.locator('#outputArea').innerText(), before);
     assert.notEqual(await page.locator('#graphArea').innerHTML(), beforeGraph);
@@ -53,9 +54,9 @@ test('per-item tiers update the displayed plan immediately and survive shared li
     assert.equal((await wolfram.innerText()).trim(), 'v2');
     assert.equal(await wolfram.getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('#outputArea select').count(), 0);
-    const fixedTierCells = await page.locator('#outputArea table').first().locator('tbody tr').evaluateAll(rows => rows.filter(row => row.cells.length === 8 && !row.cells[5].querySelector('button')).map(row => row.cells[5].textContent));
-    assert.ok(fixedTierCells.length > 0);
-    assert.ok(fixedTierCells.every(text => text === ''));
+    const fixedMachineCells = await page.locator('#outputArea table').first().locator('tbody tr').evaluateAll(rows => rows.filter(row => row.cells.length === 7 && !row.cells[4].querySelector('.machine-tier-toggle')).map(row => row.cells[4].textContent.trim()));
+    assert.ok(fixedMachineCells.length > 0);
+    assert.ok(fixedMachineCells.every(text => text.length > 0));
     assert.equal(await page.evaluate(() => getRecipe('Wolfram Powder').building), 'Furnace v.2');
     assert.equal(await page.evaluate(() => isTierTwoBuilding(getRecipe('Liquid Helium').building)), false);
     const chain = await page.evaluate(() => expandChain('Basic Fuel', 120));
@@ -78,10 +79,11 @@ test('per-item tiers update the displayed plan immediately and survive shared li
 
     await page.selectOption('#itemSelect', 'Aerogel');
     await page.fill('#rateInput', '999');
+    await page.locator('#railModeToggle').click();
     await page.selectOption('#railSelect', '1500');
     await page.selectOption('#tierSelect', 'v2');
     assert.equal(await page.locator('#outputArea').innerText(), sharedOutput);
-    await helium.click();
+    await page.locator('.machine-tier-toggle[data-tier-item="Liquid Helium"]').click();
     assert.notEqual(await page.locator('#outputArea').innerText(), sharedOutput);
     const activeParams = new URL(page.url()).searchParams;
     assert.equal(activeParams.get('item'), 'Basic Fuel');
@@ -89,7 +91,7 @@ test('per-item tiers update the displayed plan immediately and survive shared li
     assert.equal(activeParams.get('rail'), '120');
     assert.equal(activeParams.get('tier'), 'v1');
     assert.equal(await page.evaluate(() => isTierTwoBuilding(getRecipe('Liquid Helium').building)), true);
-    await helium.press('Space');
+    await page.locator('.machine-tier-toggle[data-tier-item="Liquid Helium"]').press('Space');
     assert.equal(await page.evaluate(() => isTierTwoBuilding(getRecipe('Liquid Helium').building)), false);
     assert.equal(await helium.getAttribute('aria-pressed'), 'false');
     assert.equal(JSON.parse(new URL(page.url()).searchParams.get('tiers'))['Liquid Helium'], undefined);
@@ -116,11 +118,11 @@ test('per-item tiers update the displayed plan immediately and survive shared li
     assert.equal(await helium.getAttribute('value'), 'v1');
     await wolfram.click();
     assert.equal(JSON.parse(new URL(page.url()).searchParams.get('tiers'))['Wolfram Powder'], 'v1');
-    await wolfram.press('Enter');
+    await wolfram.click();
     assert.equal(JSON.parse(new URL(page.url()).searchParams.get('tiers'))['Wolfram Powder'], undefined);
     await page.selectOption('#tierSelect', 'v1');
     await page.click('#calcButton');
-    assert.ok((await page.locator('[data-tier-item]').evaluateAll(elements => elements.map(element => element.value))).every(value => value === 'v1'));
+    assert.ok((await page.locator('.machine-tier-toggle[aria-pressed="true"]').evaluateAll(elements => elements.map(element => element.value))).every(value => value === 'v1'));
     assert.equal(new URL(page.url()).searchParams.has('tiers'), false);
     await page.click('#clearStateBtn');
     await page.waitForFunction(() => document.querySelector('#itemSelect').options.length > 1 && !location.search);
@@ -132,19 +134,20 @@ test('per-item tiers update the displayed plan immediately and survive shared li
       const layout = await page.evaluate(() => ({
         viewport: innerWidth,
         page: document.documentElement.scrollWidth,
-        targets: [...document.querySelectorAll('#controls button, #controls select, #controls input, .item-tier-toggle')].map(element => element.getBoundingClientRect().height),
+        targets: [...document.querySelectorAll('#controls button, #controls select, #controls input:not([type="radio"]), .item-tier-toggle, .machine-tier-toggle')].map(element => element.getBoundingClientRect().height),
         tableScrolls: document.querySelector('#outputArea').scrollWidth > document.querySelector('#outputArea').clientWidth
       }));
       assert.ok(layout.page <= layout.viewport, `Page overflows at ${width}px`);
       assert.ok(layout.targets.every(height => height >= 44), `Tap targets too small at ${width}px`);
       assert.equal(layout.tableScrolls, true);
       await wolfram.scrollIntoViewIfNeeded();
+      await wolfram.click({ trial: true });
       const previousPosition = await wolfram.evaluate(element => ({ top: element.getBoundingClientRect().top, scroll: document.querySelector('#outputArea').scrollLeft }));
       await wolfram.click();
       assert.equal(await wolfram.getAttribute('value'), 'v1');
       assert.equal(await page.evaluate(() => isTierTwoBuilding(getRecipe('Wolfram Powder').building)), false);
       const currentPosition = await wolfram.evaluate(element => ({ top: element.getBoundingClientRect().top, scroll: document.querySelector('#outputArea').scrollLeft, focused: document.activeElement === element }));
-      assert.ok(Math.abs(currentPosition.top - previousPosition.top) <= 2, `Selected row jumps at ${width}px`);
+      assert.ok(Math.abs(currentPosition.top - previousPosition.top) <= 2, `Selected row jumps at ${width}px: ${JSON.stringify({ previousPosition, currentPosition })}`);
       assert.equal(currentPosition.scroll, previousPosition.scroll);
       assert.equal(currentPosition.focused, true);
     }

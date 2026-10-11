@@ -62,6 +62,8 @@ let TIERS = {};
 let ITEM_TIER_OVERRIDES = new Map();
 let ACTIVE_PLAN = null;
 let SELECTED_GRAPH_NODE = null;
+let RAIL_PLANNING = null;
+let GRAPH_MODE = 'simple';
 
 function getItemTier(name) {
   return ITEM_TIER_OVERRIDES.get(name) || ACTIVE_PLAN?.tier || 'v1';
@@ -73,6 +75,12 @@ function renderItemTierToggle(name) {
   return `<button type="button" class="item-tier-toggle" data-tier-item="${escapeHtml(name)}" value="${selectedTier}" aria-label="Upgraded machine for ${escapeHtml(name)}" aria-pressed="${selectedTier === 'v2'}" title="Switch ${escapeHtml(name)} to ${nextTier}">
     <span class="is-active" aria-hidden="true">${selectedTier}</span>
   </button>`;
+}
+
+function renderMachineTierToggle(name) {
+  const selectedTier = getItemTier(name);
+  const nextTier = selectedTier === 'v1' ? 'v2' : 'v1';
+  return `<button type="button" class="machine-tier-toggle" data-tier-item="${escapeHtml(name)}" value="${selectedTier}" aria-label="${escapeHtml(name)} machine ${selectedTier}; switch to ${nextTier}" aria-pressed="${selectedTier === 'v2'}" title="Switch to ${nextTier}">${selectedTier}</button>`;
 }
 
 function isTierTwoBuilding(buildingName) {
@@ -239,6 +247,7 @@ async function fetchJson(url) {
 }
 
 async function loadRecipes() {
+  RAIL_PLANNING = await import('./lib/railPlanning.js?v=20261011-centered-span-labels');
   const { validateRecipeDataset } = await import('./lib/recipeValidation.js');
   const localPath = "data/recipes.json";
   const remotePath = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
@@ -327,6 +336,15 @@ function expandChain(item, targetRate) {
   const pending = {};
   const processed = {};
   const queue = [];
+  const recipeDepths = new Map();
+  function recipeDepth(name) {
+    if (recipeDepths.has(name)) return recipeDepths.get(name);
+    const recipe = getRecipe(name);
+    const depth = recipe ? 1 + Math.max(0, ...Object.keys(recipe.inputs).map(recipeDepth)) : 0;
+    recipeDepths.set(name, depth);
+    return depth;
+  }
+  recipeDepth(item);
 
   function trackExtractor(name, rate) {
     extractorTotals[name] = (extractorTotals[name] || 0) + rate;
@@ -350,7 +368,7 @@ function expandChain(item, targetRate) {
   enqueue(item, targetRate);
 
   while (queue.length > 0) {
-    queue.sort((a, b) => (TIERS[b] ?? 0) - (TIERS[a] ?? 0));
+    queue.sort((first, second) => recipeDepth(second) - recipeDepth(first));
     const current = queue.shift();
     if (processed[current]) continue;
     processed[current] = true;
@@ -431,7 +449,7 @@ function ensureResetButton() {
   if (!btn) {
     btn = document.createElement('div');
     btn.className = 'graphResetButton';
-    btn.innerHTML = `<button id="resetViewBtn" type="button">Reset view</button>`;
+    btn.innerHTML = `<div class="graph-mode-toggle" role="group" aria-label="Graph detail"><button type="button" data-graph-mode="simple" aria-pressed="true">Simple</button><button type="button" data-graph-mode="complex" aria-pressed="false">Complex</button></div><button id="resetViewBtn" type="button">Reset view</button><button id="toggleRailInfoBtn" type="button" aria-pressed="false">Hide rail info</button>`;
     graphArea.parentNode.insertBefore(btn, graphArea);
     btn.style.display = 'flex';
     btn.style.justifyContent = 'center';
@@ -443,20 +461,44 @@ function ensureResetButton() {
     btn.style.pointerEvents = 'auto';
   }
 
-  function adjustGraphTopPadding() {
-    if (!btn || !graphArea) return;
-    const h = Math.max(0, btn.offsetHeight || 0);
-    const gap = 8;
-    graphArea.style.paddingTop = (h + gap) + 'px';
+  const railInfoBtn = btn.querySelector('#toggleRailInfoBtn');
+  const modeButtons = [...btn.querySelectorAll('[data-graph-mode]')];
+  for (const modeButton of modeButtons) {
+    if (modeButton._graphModeBound) continue;
+    modeButton._graphModeBound = true;
+    modeButton.addEventListener('click', () => {
+      const nextMode = modeButton.dataset.graphMode;
+      if (GRAPH_MODE === nextMode || !ACTIVE_PLAN) return;
+      GRAPH_MODE = nextMode;
+      for (const button of modeButtons) {
+        button.setAttribute('aria-pressed', String(button.dataset.graphMode === GRAPH_MODE));
+      }
+      SELECTED_GRAPH_NODE = null;
+      renderActivePlan();
+    });
+  }
+  if (railInfoBtn && !railInfoBtn._railInfoToggleBound) {
+    railInfoBtn._railInfoToggleBound = true;
+    railInfoBtn.addEventListener('click', () => {
+      const hidden = graphArea.classList.toggle('hide-rail-info');
+      railInfoBtn.textContent = hidden ? 'Show rail info' : 'Hide rail info';
+      railInfoBtn.setAttribute('aria-pressed', String(hidden));
+    });
   }
 
-  requestAnimationFrame(() => adjustGraphTopPadding());
-
-  let resizeTimer = null;
-  function onResize() {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => adjustGraphTopPadding(), 80);
+  function syncGraphControls() {
+    for (const modeButton of modeButtons) {
+      const selected = modeButton.dataset.graphMode === GRAPH_MODE;
+      modeButton.setAttribute('aria-pressed', String(selected));
+    }
+    if (railInfoBtn) {
+      const hidden = graphArea.classList.contains('hide-rail-info');
+      railInfoBtn.textContent = hidden ? 'Show rail info' : 'Hide rail info';
+      railInfoBtn.setAttribute('aria-pressed', String(hidden));
+    }
   }
+
+  syncGraphControls();
 
   return btn;
 }
@@ -478,6 +520,9 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   let pointerStartX = 0;
   let pointerStartY = 0;
   let dragThreshold = DRAG_THRESHOLD_PX;
+  const touchPointers = new Map();
+  let pinchDistance = 0;
+  let pinchCenter = null;
 
   function getContentBBox() {
     try { return zoomLayer.getBBox(); } catch (e) { return { x: 0, y: 0, width: svg.clientWidth, height: svg.clientHeight }; }
@@ -543,6 +588,16 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
     applyTransform();
   }
 
+  function getPinchGeometry() {
+    const points = [...touchPointers.values()].slice(0, 2);
+    const dx = points[1].x - points[0].x;
+    const dy = points[1].y - points[0].y;
+    return {
+      distance: Math.hypot(dx, dy),
+      center: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 }
+    };
+  }
+
   function onWheel(ev) {
     ev.preventDefault();
     const delta = -ev.deltaY;
@@ -553,8 +608,21 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   svg.addEventListener('wheel', onWheel, { passive: false });
 
   function onPointerDown(ev) {
+    if (ev.pointerType === 'touch') {
+      touchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (touchPointers.size >= 2) {
+        isPanning = false;
+        activePointerId = null;
+        svg._graphPointerDragged = true;
+        const geometry = getPinchGeometry();
+        pinchDistance = geometry.distance;
+        pinchCenter = geometry.center;
+        return;
+      }
+    } else if (!ev.isPrimary) {
+      return;
+    }
     if (ev.button !== 0) return;
-    if (!ev.isPrimary) return;
     isPanning = true;
     svg._graphPointerDragged = false;
     activePointerId = ev.pointerId;
@@ -567,6 +635,26 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   svg.addEventListener('pointerdown', onPointerDown);
 
   function onPointerMove(ev) {
+    if (ev.pointerType === 'touch' && touchPointers.has(ev.pointerId)) {
+      touchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (touchPointers.size >= 2) {
+        const geometry = getPinchGeometry();
+        if (pinchDistance > 0) {
+          const p0 = svg.createSVGPoint(); p0.x = pinchCenter.x; p0.y = pinchCenter.y;
+          const p1 = svg.createSVGPoint(); p1.x = geometry.center.x; p1.y = geometry.center.y;
+          const svg0 = p0.matrixTransform(svg.getScreenCTM().inverse());
+          const svg1 = p1.matrixTransform(svg.getScreenCTM().inverse());
+          tx += svg1.x - svg0.x;
+          ty += svg1.y - svg0.y;
+          const newScale = Math.min(3, Math.max(0.25, scale * geometry.distance / pinchDistance));
+          zoomAt(newScale, geometry.center.x, geometry.center.y);
+          svg._graphPointerDragged = true;
+        }
+        pinchDistance = geometry.distance;
+        pinchCenter = geometry.center;
+        return;
+      }
+    }
     if (!isPanning || ev.pointerId !== activePointerId) return;
     if (!svg._graphPointerDragged) {
       if (Math.hypot(ev.clientX - pointerStartX, ev.clientY - pointerStartY) < dragThreshold) return;
@@ -593,6 +681,29 @@ function setupGraphZoom(containerEl, { autoFit = true, resetButtonEl = null } = 
   window.addEventListener('pointermove', onPointerMove);
 
   function onPointerEnd(ev) {
+    const wasPinching = pinchDistance > 0;
+    if (ev.pointerType === 'touch') touchPointers.delete(ev.pointerId);
+    if (touchPointers.size >= 2) {
+      const geometry = getPinchGeometry();
+      pinchDistance = geometry.distance;
+      pinchCenter = geometry.center;
+      isPanning = false;
+      activePointerId = null;
+      return;
+    }
+    if (wasPinching && touchPointers.size === 1) {
+      const [pointerId, point] = touchPointers.entries().next().value;
+      pinchDistance = 0;
+      pinchCenter = null;
+      isPanning = true;
+      activePointerId = pointerId;
+      startX = pointerStartX = point.x;
+      startY = pointerStartY = point.y;
+      dragThreshold = TOUCH_THRESHOLD_PX;
+      return;
+    }
+    pinchDistance = 0;
+    pinchCenter = null;
     if (!isPanning || ev.pointerId !== activePointerId) return;
     isPanning = false;
     activePointerId = null;
@@ -652,16 +763,27 @@ function buildGraphData(chain, rootItem) {
   const nodes = [];
   const links = [];
   const nodeMap = new Map();
+  const depths = typeof computeDepthsFromTiers === 'function'
+    ? computeDepthsFromTiers(chain, rootItem || null)
+    : {};
 
   // Create node objects for every item in the chain
   for (const [item, data] of Object.entries(chain || {})) {
     const node = {
       id: item,
       label: item,
+      kind: data.raw ? 'raw-source' : 'machine',
       raw: !!data.raw,
       building: data.building || null,
       machines: data.machines || 0,
-      inputs: Object.assign({}, data.inputs || {})
+      rate: data.rate || 0,
+      inputs: Object.assign({}, data.inputs || {}),
+      inputPorts: data.raw ? null : RAIL_PLANNING.recommendMachineInputPorts(
+        data.inputs || {},
+        Math.max(1, Math.ceil(Number(data.machines) || 1)),
+        ACTIVE_PLAN?.railMode === 'manual' ? Number(ACTIVE_PLAN.rail) : null,
+        ACTIVE_PLAN?.railMode === 'auto' ? Number(ACTIVE_PLAN.rail) : null
+      )
     };
     nodes.push(node);
     nodeMap.set(item, node);
@@ -673,16 +795,12 @@ function buildGraphData(chain, rootItem) {
     for (const inputName of Object.keys(inputs)) {
       // Only add links when both ends exist in the node set
       if (nodeMap.has(consumer) && nodeMap.has(inputName)) {
-        links.push({ from: consumer, to: inputName });
+        links.push({ from: consumer, to: inputName, rate: inputs[inputName] });
       }
     }
   }
 
   // Compute depths (columns) using existing tier logic
-  const depths = typeof computeDepthsFromTiers === 'function'
-    ? computeDepthsFromTiers(chain, rootItem || null)
-    : {};
-
   // Attach depth to nodes (default to 0)
   for (const n of nodes) {
     n.depth = Number.isFinite(Number(depths[n.id])) ? Number(depths[n.id]) : 0;
@@ -697,39 +815,12 @@ function buildGraphData(chain, rootItem) {
 // Also ensures no left helper/anchor is created for raw nodes in the far-left column.
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
-  const ANCHOR_RADIUS = 5;
-  const ANCHOR_OFFSET = 18;
-
-  const ARROW_HALF_WIDTH = 5;
-  const ARROW_HEIGHT = 8;
-  const ARROW_CENTER_ADJUST = ARROW_HEIGHT / 3;
-  const ARROW_GAP_FROM_LABEL = 6;
-  const UP_ARROW_EXTRA_LIFT = 4;
-
-  const H_ARROW_HALF_HEIGHT = 5;
-  const H_ARROW_WIDTH = 8;
-
   const LABEL_OFFSET = 6;
 
   const BYPASS_RADIUS = 5;
   const BYPASS_Y_OFFSET = 34;
-  const BYPASS_X_INSET = 10;
 
   function roundCoord(v) { return Math.round(v * 100) / 100; }
-
-  function anchorRightPos(node) {
-    return {
-      x: roundCoord(node.x + nodeRadius + ANCHOR_OFFSET),
-      y: roundCoord(node.y)
-    };
-  }
-
-  function anchorLeftPos(node) {
-    return {
-      x: roundCoord(node.x - nodeRadius - ANCHOR_OFFSET),
-      y: roundCoord(node.y)
-    };
-  }
 
   // ---------------------------------
   // Defaults
@@ -803,399 +894,159 @@ function renderGraph(nodes, links, rootItem) {
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
 
-  const contentX = minX - nodeRadius - GRAPH_CONTENT_PAD;
+  const railLabelSidePad = GRAPH_CONTENT_PAD;
+  const contentX = minX - nodeRadius - railLabelSidePad;
+  const railLabelTopPad = 112;
   const contentY =
-    minY - nodeRadius - GRAPH_CONTENT_PAD - bypassExtraTop;
-  const contentW = (maxX - minX) + nodeRadius*2 + GRAPH_CONTENT_PAD*2;
+    minY - nodeRadius - GRAPH_CONTENT_PAD - bypassExtraTop - railLabelTopPad;
+  const contentW = (maxX - minX) + nodeRadius*2 + railLabelSidePad*2;
   const contentH =
     (maxY - minY) +
     nodeRadius * 2 +
     GRAPH_CONTENT_PAD * 2 +
-    bypassExtraTop;
+    bypassExtraTop +
+    railLabelTopPad;
 
   let inner = '';
 
-  // ---------------------------------
-  // Helper anchors
-  // ---------------------------------
-  const rightHelpers = [];
-  const leftHelpers = [];
-
-  // ---------------------------------
-  // Collect bypass dot positions
-  // ---------------------------------
-  const bypassDots = []; // { x, y, depth, side }
-
-  const minDepth = Math.min(...nodes.map(n => n.depth));
-  const maxDepth = Math.max(...nodes.map(n => n.depth));
-
-  for (const node of nodes) {
-
-    // OUTPUT helpers (allowed for raw + non-raw)
-    if (node.hasOutputAnchor && node.depth !== maxDepth) {
-      const a = anchorRightPos(node);
-      rightHelpers.push({ ...a, depth: node.depth });
-
-      inner += `
-        <line x1="${node.x + nodeRadius}" y1="${node.y}"
-              x2="${a.x}" y2="${a.y}"
-              stroke="var(--line-color)" stroke-width="1.2" />
-        <circle cx="${a.x}" cy="${a.y}"
-                r="${ANCHOR_RADIUS}"
-                fill="var(--bypass-fill)"
-                stroke="var(--bypass-stroke)"
-                stroke-width="1.2"/>
-      `;
-    }
-
-    // INPUT helpers (❌ NEVER for raw nodes)
-    if (
-      node.hasInputAnchor &&
-      !node.raw &&                 // <<< CRITICAL FIX
-      node.depth !== minDepth
-    ) {
-      const a = anchorLeftPos(node);
-      leftHelpers.push({ ...a, depth: node.depth });
-
-      inner += `
-        <line x1="${node.x - nodeRadius}" y1="${node.y}"
-              x2="${a.x}" y2="${a.y}"
-              stroke="var(--line-color)" stroke-width="1.2" />
-        <circle cx="${a.x}" cy="${a.y}"
-                r="${ANCHOR_RADIUS}"
-                fill="var(--bypass-fill)"
-                stroke="var(--bypass-stroke)"
-                stroke-width="1.2"/>
-      `;
-    }
+  const nodeObstacles = nodes.flatMap(node => {
+    const labelWidth = Math.max(48, String(node.label || node.id).length * 7 + 20);
+    const labelHeight = 13 + 6 * 2;
+    const labelTop = node.y - nodeRadius - LABEL_OFFSET - labelHeight;
+    return [
+      { left: node.x - labelWidth / 2 - 4, right: node.x + labelWidth / 2 + 4, top: labelTop - 4, bottom: labelTop + labelHeight + 4 },
+      { left: node.x - nodeRadius - 4, right: node.x + nodeRadius + 4, top: node.y - nodeRadius - 4, bottom: node.y + nodeRadius + 4 }
+    ];
+  });
+  const nodeEndpoints = new Set(nodes.flatMap(node => [
+    `${node.x - nodeRadius}:${node.y}`,
+    `${node.x + nodeRadius}:${node.y}`,
+    `${node.x}:${node.y - nodeRadius}`,
+    `${node.x}:${node.y + nodeRadius}`
+  ]));
+  const productInputs = new Set(links.map(link => link.to));
+  const directInputs = new Map();
+  for (const link of links) {
+    if (!directInputs.has(link.from)) directInputs.set(link.from, []);
+    directInputs.get(link.from).push(link.to);
   }
-
-    // top-most node per column
-    const topBypassNodeByDepth = {};
-
-    // outputs
-    for (const link of links) {
-      const from = nodes.find(n => n.id === link.source);
-      const to   = nodes.find(n => n.id === link.target);
-      if (!from || !to) continue;
-
-      if (to.depth - from.depth > 1) {
-        const dOut = from.depth;
-        const dIn  = to.depth;
-
-        if (!topBypassNodeByDepth[dOut] || from.y < topBypassNodeByDepth[dOut].y) {
-          topBypassNodeByDepth[dOut] = from;
-        }
-
-        if (!topBypassNodeByDepth[dIn] || to.y < topBypassNodeByDepth[dIn].y) {
-          topBypassNodeByDepth[dIn] = to;
-        }
-      }
-    }
-
-  // ---------------------------------
-  // Vertical output spines
-  // ---------------------------------
-  const byX = {};
-  for (const h of rightHelpers) {
-    if (!byX[h.x]) byX[h.x] = [];
-    byX[h.x].push(h);
+  const railLabelObstacles = [];
+  const labelClearance = 8;
+  function overlapsRailLabel(bounds) {
+    return railLabelObstacles.some(obstacle =>
+      bounds.left < obstacle.right && bounds.right > obstacle.left &&
+      bounds.top < obstacle.bottom && bounds.bottom > obstacle.top
+    );
   }
-
-  for (const helpers of Object.values(byX)) {
-    if (helpers.length < 2) continue;
-    helpers.sort((a,b)=>a.y - b.y);
-
-    for (let i = 0; i < helpers.length - 1; i++) {
-      const x = helpers[i].x;
-      const y1 = helpers[i].y;
-      const y2 = helpers[i + 1].y;
-
-      inner += `
-        <line x1="${x}" y1="${y1}"
-              x2="${x}" y2="${y2}"
-              stroke="var(--line-color)" stroke-width="1.6" />
-      `;
-
-      const midY = (y1 + y2) / 2;
-      const arrowY =
-        midY +
-        ARROW_GAP_FROM_LABEL -
-        ARROW_CENTER_ADJUST -
-        UP_ARROW_EXTRA_LIFT;
-
-      inner += `
-        <polygon
-          points="
-            ${x},${arrowY - ARROW_HEIGHT}
-            ${x - ARROW_HALF_WIDTH},${arrowY}
-            ${x + ARROW_HALF_WIDTH},${arrowY}
-          "
-          fill="var(--line-color)" />
-      `;
-    }
-  }
-
-  // ---------------------------------
-  // Vertical input spines
-  // ---------------------------------
-  const byXInput = {};
-  for (const h of leftHelpers) {
-    if (!byXInput[h.x]) byXInput[h.x] = [];
-    byXInput[h.x].push(h);
-  }
-
-  for (const helpers of Object.values(byXInput)) {
-    if (helpers.length < 2) continue;
-    helpers.sort((a,b)=>a.y - b.y);
-
-    for (let i = 0; i < helpers.length - 1; i++) {
-      const x = helpers[i].x;
-      const y1 = helpers[i].y;
-      const y2 = helpers[i + 1].y;
-
-      inner += `
-        <line x1="${x}" y1="${y1}"
-              x2="${x}" y2="${y2}"
-              stroke="var(--line-color)" stroke-width="1.6" />
-      `;
-
-      const midY = (y1 + y2) / 2;
-      const arrowY =
-        midY -
-        ARROW_CENTER_ADJUST -
-        ARROW_GAP_FROM_LABEL;
-
-      inner += `
-        <polygon
-          points="
-            ${x},${arrowY + ARROW_HEIGHT}
-            ${x - ARROW_HALF_WIDTH},${arrowY}
-            ${x + ARROW_HALF_WIDTH},${arrowY}
-          "
-          fill="var(--line-color)" />
-      `;
-    }
-  }
-
-  // ---------------------------------
-  // HORIZONTAL TOP CONNECTIONS (RIGHT → LEFT)
-  // ---------------------------------
-  const rightTopByDepth = {};
-  const leftTopByDepth = {};
-
-  for (const h of rightHelpers) {
-    if (!rightTopByDepth[h.depth] || h.y < rightTopByDepth[h.depth].y) {
-      rightTopByDepth[h.depth] = h;
-    }
-  }
-
-  for (const h of leftHelpers) {
-    if (!leftTopByDepth[h.depth] || h.y < leftTopByDepth[h.depth].y) {
-      leftTopByDepth[h.depth] = h;
-    }
-  }
-
-  for (const d of Object.keys(rightTopByDepth).map(Number)) {
-    const from = rightTopByDepth[d];
-    const to = leftTopByDepth[d + 1];
-    if (!from || !to) continue;
-
-    const y = from.y;
-    const midX = (from.x + to.x) / 2;
-
-    inner += `
-      <line
-        x1="${from.x}" y1="${y}"
-        x2="${to.x}"   y2="${y}"
-        stroke="var(--line-color)"
-        stroke-width="1.6" />
-      <polygon
-        points="
-          ${midX + H_ARROW_WIDTH},${y}
-          ${midX},${y - H_ARROW_HALF_HEIGHT}
-          ${midX},${y + H_ARROW_HALF_HEIGHT}
-        "
-        fill="var(--line-color)" />
-    `;
-  }
-
-  // ---------------------------------
-  // BYPASS HELPER DOTS (TRUE HELPERS)
-  // ---------------------------------
-
-  // Compute true vertical unit per column (same spacing as spines)
-  function getVerticalUnit(helpersByX) {
-    for (const helpers of Object.values(helpersByX)) {
-      if (helpers.length >= 2) {
-        return helpers[1].y - helpers[0].y;
-      }
-    }
-    return GRAPH_ROW_HEIGHT; // safe fallback
-  }
-
-  const verticalUnitOut = getVerticalUnit(byX);
-  const verticalUnitIn  = getVerticalUnit(byXInput);
-  
-  // Output-side bypass helper dots
-  for (const depth of bypassOutputDepths) {
-    const h = rightTopByDepth[depth];
-    if (!h) continue;
-
-    const y = h.y - verticalUnitOut;
-
-    bypassDots.push({
-      x: h.x,
-      y,
-      depth,
-      side: 'out'
+  function reserveRailLabel(bounds) {
+    railLabelObstacles.push({
+      left: bounds.left - labelClearance,
+      right: bounds.right + labelClearance,
+      top: bounds.top - labelClearance,
+      bottom: bounds.bottom + labelClearance
     });
-
-    inner += `
-      <circle
-        cx="${h.x}"
-        cy="${y}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"
-      />
-    `;
   }
-
-  // Input-side bypass helper dots
-  for (const depth of bypassInputDepths) {
-    const h = leftTopByDepth[depth];
-    if (!h) continue;
-
-    const y = h.y - verticalUnitIn;
-
-    bypassDots.push({
-      x: h.x,
-      y,
-      depth,
-      side: 'in'
-    });
-
-    inner += `
-      <circle
-        cx="${h.x}"
-        cy="${y}"
-        r="${BYPASS_RADIUS}"
-        fill="var(--bypass-fill)"
-        stroke="var(--bypass-stroke)"
-        stroke-width="1.4"
-      />
-    `;
-  }
-
-    // ---------------------------------
-    // Connect bypass dots to vertical spines (WITH ARROWS)
-    // ---------------------------------
-    for (const d of bypassDots) {
-      const spine =
-        d.side === 'out'
-          ? rightTopByDepth[d.depth]
-          : leftTopByDepth[d.depth];
-
-      if (!spine) continue;
-
-      inner += `
-        <line
-          x1="${d.x}"
-          y1="${d.y}"
-          x2="${spine.x}"
-          y2="${spine.y}"
-          stroke="var(--line-color)"
-          stroke-width="1.6"
-        />
-      `;
-
-      const midY = (d.y + spine.y) / 2;
-
-      // OUTPUT side → arrow UP (same as output spines)
-      if (d.side === 'out') {
-        const arrowY =
-          midY +
-          ARROW_GAP_FROM_LABEL -
-          ARROW_CENTER_ADJUST -
-          UP_ARROW_EXTRA_LIFT;
-
-        inner += `
-          <polygon
-            points="
-              ${d.x},${arrowY - ARROW_HEIGHT}
-              ${d.x - ARROW_HALF_WIDTH},${arrowY}
-              ${d.x + ARROW_HALF_WIDTH},${arrowY}
-            "
-            fill="var(--line-color)" />
-        `;
-      }
-
-      // INPUT side → arrow DOWN (same as input spines)
-      if (d.side === 'in') {
-        const arrowY =
-          midY -
-          ARROW_CENTER_ADJUST -
-          ARROW_GAP_FROM_LABEL;
-
-        inner += `
-          <polygon
-            points="
-              ${d.x},${arrowY + ARROW_HEIGHT}
-              ${d.x - ARROW_HALF_WIDTH},${arrowY}
-              ${d.x + ARROW_HALF_WIDTH},${arrowY}
-            "
-            fill="var(--line-color)" />
-        `;
+  function railLabelPosition(segment, label) {
+    const horizontal = segment.y1 === segment.y2;
+    const length = Math.hypot(segment.x2 - segment.x1, segment.y2 - segment.y1);
+    const width = label.length * 7 + 6;
+    if (horizontal && length <= 20) return null;
+    if (length < Math.max(70, width + labelClearance * 2 + 8)) return null;
+    const inputSpine = !horizontal && nodes.some(node => node.x - 40 === segment.x1);
+    const anchor = horizontal ? 'middle' : (inputSpine ? 'end' : 'start');
+    const fractions = horizontal ? [0.5, 0.35, 0.65, 0.2, 0.8, 0.05, 0.95] : [0.5];
+    const offsets = horizontal ? [12, 32, 52, 72, 92, 112, 132, 152, 172] : [12];
+    for (const offset of offsets) {
+      for (const fraction of fractions) {
+        const x = horizontal
+          ? segment.x1 + (segment.x2 - segment.x1) * fraction
+          : segment.x1 + (inputSpine ? -offset : offset);
+        const y = horizontal
+          ? segment.y1 - offset
+          : segment.y1 + (segment.y2 - segment.y1) * fraction;
+        const left = anchor === 'middle' ? x - width / 2 : (anchor === 'end' ? x - width : x);
+        const bounds = { left, right: left + width, top: y - 14, bottom: y + 2 };
+        const overlapsNode = nodeObstacles.some(obstacle => bounds.left < obstacle.right && bounds.right > obstacle.left && bounds.top < obstacle.bottom && bounds.bottom > obstacle.top);
+        if (overlapsNode || overlapsRailLabel(bounds)) continue;
+        reserveRailLabel(bounds);
+        return { x, y, anchor };
       }
     }
+    return null;
+  }
 
-    // ---------------------------------
-    // Horizontal bypass rail (dot-to-dot with arrows)
-    // ---------------------------------
-    // Sort by actual x position (true visual order along the rail), not just
-    // depth — an 'out' dot and 'in' dot can share the same depth but sit at
-    // different x (right vs left edge of the same column). Sorting by depth
-    // alone made same-depth ties ambiguous: skipping "connect within the same
-    // column" while still advancing the loop index either reused the wrong
-    // waypoint (arrow anchored on the wrong start node) or, when instead
-    // deduped down to one dot per depth, dropped a real waypoint entirely
-    // (arrow spanning straight between two 'out' nodes, skipping a column).
-    // Sorting by x and connecting every consecutive pair avoids both: each
-    // pair is always genuinely x-adjacent, and every line always gets exactly
-    // one arrow.
-    const topBypassDots = bypassDots
-      .slice()
-      .sort((a, b) => a.x - b.x);
+  const railSegments = RAIL_PLANNING.buildRailSegments(nodes, links, rootItem);
+  const manualCapacity = ACTIVE_PLAN?.railMode === 'manual' ? Number(ACTIVE_PLAN.rail) : null;
+  const maxAvailableCapacity = ACTIVE_PLAN?.railMode === 'auto' ? Number(ACTIVE_PLAN.rail) : null;
+  const railRecommendations = railSegments.map(segment =>
+    RAIL_PLANNING.recommendRail(segment.rate, manualCapacity, maxAvailableCapacity)
+  );
+  const railLabelRuns = RAIL_PLANNING.groupRailLabelRuns(railSegments, railRecommendations);
+  inner = railSegments.map((segment, index) => {
+    if (segment.finalOutput) return '';
+    const recommendation = railRecommendations[index];
+    const label = `${recommendation.count > 1 ? recommendation.count + ' x ' : ''}v${recommendation.tier}`;
+    const details = Object.entries(segment.flows).map(([item, rate]) => `${item}: ${Number(rate.toFixed(2))}/min`).join('; ');
+    const routeDescription = segment.bypass ? 'Bypass' : 'Rail';
+    const parallelHint = GRAPH_MODE === 'complex' && recommendation.count > 1
+      ? ` Consider Multirail ${recommendation.count <= 3 ? '3' : '5'} support for ${recommendation.count} parallel rails; capacity is still evaluated per rail.`
+      : '';
+    const title = `${routeDescription} ${index + 1}: ${Number(segment.rate.toFixed(2))} items/min; ${label} (${recommendation.capacity}/min each). ${details}${parallelHint}`;
+    const horizontal = segment.y1 === segment.y2;
+    const midpointX = (segment.x1 + segment.x2) / 2;
+    const midpointY = (segment.y1 + segment.y2) / 2;
+    const fixed = horizontal ? segment.y1 : segment.x1;
+    const start = horizontal ? segment.x1 : segment.y1;
+    const end = horizontal ? segment.x2 : segment.y2;
+    const isMachineConnector = nodeEndpoints.has(`${segment.x1}:${segment.y1}`) || nodeEndpoints.has(`${segment.x2}:${segment.y2}`);
+    const arrow = horizontal
+      ? `${midpointX + segment.direction * 7},${midpointY} ${midpointX - segment.direction * 3},${midpointY - 4} ${midpointX - segment.direction * 3},${midpointY + 4}`
+      : `${midpointX},${midpointY + segment.direction * 7} ${midpointX - 4},${midpointY - segment.direction * 3} ${midpointX + 4},${midpointY - segment.direction * 3}`;
+    return `<g class="rail-segment" data-rail-segment="${index}" data-node-kind="shared-rail" data-consumers="${escapeHtml(JSON.stringify(segment.consumers || []))}" data-rate="${segment.rate}" data-bypass="${segment.bypass}" data-tier="${recommendation.tier}" data-count="${recommendation.count}">
+      <title>${escapeHtml(title)}</title>
+      <line x1="${segment.x1}" y1="${segment.y1}" x2="${segment.x2}" y2="${segment.y2}" stroke="var(--line-color)" stroke-width="1.6" />
+      <line class="rail-hit-target" x1="${segment.x1}" y1="${segment.y1}" x2="${segment.x2}" y2="${segment.y2}" stroke="transparent" stroke-width="14" />
+      ${isMachineConnector ? '' : `<polygon points="${arrow}" fill="var(--line-color)" />`}
+    </g>`;
+  }).join('');
+  const renderedRailLabels = railLabelRuns.map(run => {
+    const segment = run.horizontal
+      ? { x1: run.start, y1: run.fixed, x2: run.end, y2: run.fixed }
+      : { x1: run.fixed, y1: run.start, x2: run.fixed, y2: run.end };
+    const position = railLabelPosition(segment, run.label);
+    if (!position) return '';
+    const dataRun = `data-rail-run="${run.segmentIndexes.join(',')}"`;
+    return `<text class="rail-tier-label" ${dataRun} x="${position.x}" y="${position.y}" text-anchor="${position.anchor}" font-size="12">${escapeHtml(run.label)}</text>`;
+  }).join('');
+  const renderedRailLabelCount = (renderedRailLabels.match(/class="rail-tier-label(?:\s|")/g) || []).length;
+  inner += renderedRailLabels;
 
-    for (let i = 0; i < topBypassDots.length - 1; i++) {
-      const a = topBypassDots[i];
-      const b = topBypassDots[i + 1];
-
-      inner += `
-        <line
-          x1="${a.x}"
-          y1="${a.y}"
-          x2="${b.x}"
-          y2="${b.y}"
-          stroke="var(--line-color)"
-          stroke-width="1.6"
-        />
-      `;
-
-      const midX = (a.x + b.x) / 2;
-
-      inner += `
-        <polygon
-          points="
-            ${midX + H_ARROW_WIDTH},${a.y}
-            ${midX},${a.y - H_ARROW_HALF_HEIGHT}
-            ${midX},${a.y + H_ARROW_HALF_HEIGHT}
-          "
-          fill="var(--line-color)" />
-      `;
+  const junctions = new Map();
+  const endpointRailCounts = new Map();
+  for (const segment of railSegments) {
+    if (segment.finalOutput) continue;
+    const railCount = RAIL_PLANNING.recommendRail(segment.rate, manualCapacity, maxAvailableCapacity).count;
+    const endpoints = [
+      [segment.x1, segment.y1],
+      [segment.x2, segment.y2]
+    ];
+    for (const [x, y] of endpoints) {
+      const touchesNode = nodeEndpoints.has(`${x}:${y}`);
+      const key = `${x}:${y}`;
+      if (!touchesNode) junctions.set(key, { x, y });
+      if (!endpointRailCounts.has(key)) endpointRailCounts.set(key, []);
+      endpointRailCounts.get(key).push(railCount);
     }
+  }
+  inner += [...junctions.values()].map(({ x, y }) => {
+    const railCounts = endpointRailCounts.get(`${x}:${y}`) || [];
+    const modulator = GRAPH_MODE === 'complex' ? RAIL_PLANNING.recommendRailModulatorForRailCounts(railCounts) : null;
+    const standardTitle = 'Rail Connector: standard drone-rail join or split.';
+    const hardware = modulator
+      ? `Candidate: ${modulator === 'modulator3' ? 'Rail Modulator 3' : 'Rail Modulator 5'} because adjacent segments change from ${Math.min(...railCounts)} to ${Math.max(...railCounts)} parallel rails. Verify routing in-game.`
+      : standardTitle;
+    return `<g class="rail-junction${modulator ? ' rail-junction-candidate' : ''}" data-structure="${modulator || 'railConnector'}" data-adjacent-rail-counts="${[...new Set(railCounts)].sort((first, second) => first - second).join(',')}"${modulator ? ' pointer-events="visiblePainted"' : ' pointer-events="none"'}><title>${escapeHtml(hardware)}</title><circle cx="${x}" cy="${y}" r="5" fill="var(--bypass-fill)" stroke="var(--bypass-stroke)" stroke-width="1.2" /></g>`;
+  }).join('');
 
   // ---------------------------------
   // Nodes
@@ -1220,7 +1071,12 @@ function renderGraph(nodes, links, rootItem) {
         : "";
 
     inner += `
-      <g class="graph-node" data-id="${escapeHtml(node.id)}" data-inputs="${escapeHtml(JSON.stringify(Object.keys(node.inputs || {})))}" tabindex="0" role="button" aria-label="Inspect inputs for ${escapeHtml(node.id)}" aria-pressed="false">
+      <g class="graph-node ${node.raw ? 'graph-source' : 'graph-machine'}" data-node-kind="${node.kind}" data-id="${escapeHtml(node.id)}" data-product-id="${escapeHtml(node.productId || node.id)}" data-inputs="${escapeHtml(JSON.stringify(directInputs.get(node.id) || []))}" tabindex="0" role="button" aria-label="${node.raw ? `Raw source ${escapeHtml(node.id)}` : `Inspect inputs for ${escapeHtml(node.id)}`}" aria-pressed="false">
+        ${node.raw ? `<title>Raw source: ${escapeHtml(node.id)}. Supplies ${Number(node.rate.toFixed(2))}/min to its recipe consumers.</title>` : ''}
+        ${(node.productId || node.id) === rootItem ? (() => {
+          const outputRail = RAIL_PLANNING.recommendRail(node.rate, manualCapacity, maxAvailableCapacity);
+          return `<title>Final output: ${Number(node.rate.toFixed(2))} items/min; ${outputRail.count > 1 ? outputRail.count + ' x ' : ''}v${outputRail.tier} (${outputRail.capacity}/min each)</title>`;
+        })() : ''}
         <!-- label box -->
         <rect
           x="${node.x - width / 2}"
@@ -1251,6 +1107,21 @@ function renderGraph(nodes, links, rootItem) {
           stroke="#2c3e50"
           stroke-width="2"/>
 
+        ${!node.raw && node.inputPorts ? (() => {
+          const ports = node.inputPorts;
+          const displayedPortCount = ports.inputNodesPerMachine;
+          const visiblePortCount = Math.min(displayedPortCount, 7);
+          const portMarkers = Array.from({ length: visiblePortCount }, (_, index) => {
+            const offsetY = visiblePortCount === 1 ? 0 : (index - (visiblePortCount - 1) / 2) * 5;
+            const portX = node.x - Math.sqrt(Math.max(0, nodeRadius * nodeRadius - offsetY * offsetY));
+            return `<circle class="machine-input-port" cx="${portX}" cy="${node.y + offsetY}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" />`;
+          }).join('');
+          const overflow = displayedPortCount > visiblePortCount ? `<text class="machine-input-port-overflow" x="${node.x - nodeRadius - 3}" y="${node.y - 14}" text-anchor="end">+${displayedPortCount - visiblePortCount}</text>` : '';
+          const description = `${ports.inputNodesPerMachine} input node${ports.inputNodesPerMachine === 1 ? '' : 's'} at v${ports.tier} per machine.`;
+          return `<g class="machine-input-ports" data-input-nodes-per-machine="${ports.inputNodesPerMachine}" data-total-input-nodes="${ports.totalInputNodes}" data-input-rate-per-machine="${ports.ratePerMachine}" data-rail-tier="${ports.tier}" data-rail-count-per-machine="${ports.count}"><title>${description} ${Number(ports.ratePerMachine.toFixed(2))}/min aggregate inputs per machine; ${ports.totalInputNodes} total selected-tier input nodes across ${ports.machineCount} machines. Items may share each rail under pull demand.</title>${portMarkers}${overflow}</g>`;
+        })() : ''}
+        ${node.raw || productInputs.has(node.id) ? `<g class="node-output-feed" data-node-kind="${node.raw ? 'raw-source-output' : 'machine-output'}"><title>${node.raw ? 'Raw source output feed' : 'Product output feed'}: ${Number(node.rate.toFixed(2))}/min</title><circle cx="${node.x + nodeRadius}" cy="${node.y}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" /></g>` : ''}
+
         <!-- machine count inside node -->
         ${
           machineCount !== ""
@@ -1264,13 +1135,14 @@ function renderGraph(nodes, links, rootItem) {
             `
             : ""
         }
+        ${node.raw ? `<text class="sourceNodeMarker" x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central">RAW</text>` : ''}
       </g>
     `;
   }
 
   return `
     <div class="graphWrapper">
-      <svg class="graphSVG" viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
+      <svg class="graphSVG" data-rail-label-run-count="${railLabelRuns.length}" data-rail-label-rendered-count="${renderedRailLabelCount}" viewBox="${contentX} ${contentY} ${contentW} ${contentH}">
         <g id="zoomLayer">
           ${inner}
         </g>
@@ -1288,6 +1160,7 @@ function attachNodePointerHandlers(wrapper) {
   if (!svg) return;
 
   const groups = [...svg.querySelectorAll('g.graph-node[data-id]')];
+  const railGroups = [...svg.querySelectorAll('g.rail-segment')];
 
   function updateSelection() {
     const selected = groups.find(group => group.dataset.id === SELECTED_GRAPH_NODE);
@@ -1301,6 +1174,10 @@ function attachNodePointerHandlers(wrapper) {
       group.classList.toggle('graph-pulsing', isSelected || inputIndex >= 0);
       group.setAttribute('aria-pressed', String(isSelected));
       group.style.setProperty('--pulse-delay', `${inputIndex >= 0 ? (inputIndex + 1) * PULSE_STAGGER_MS : 0}ms`);
+    }
+    for (const rail of railGroups) {
+      const consumers = JSON.parse(rail.dataset.consumers || '[]');
+      rail.classList.toggle('rail-selected', !!selected && consumers.includes(selected.dataset.id));
     }
     if (selected) svg.dataset.selectedNode = SELECTED_GRAPH_NODE;
     else delete svg.dataset.selectedNode;
@@ -1355,8 +1232,19 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
 
   // Build graph data (nodes + links) and ensure depths are attached
   const graph = buildGraphData(chain, rootItem);
-  const nodes = graph.nodes || [];
-  const links = graph.links || [];
+  let nodes = graph.nodes || [];
+  let links = graph.links || [];
+  const complexCost = RAIL_PLANNING.estimateComplexGraphCost(nodes, links, rootItem);
+  const complexLimitExceeded = GRAPH_MODE === 'complex' && complexCost.workUnits > RAIL_PLANNING.COMPLEX_GRAPH_WORK_LIMIT;
+  if (GRAPH_MODE === 'complex' && !complexLimitExceeded) {
+    ({ nodes, links } = RAIL_PLANNING.expandMachineGraph(
+      nodes,
+      links,
+      rootItem,
+      ACTIVE_PLAN?.railMode === 'manual' ? Number(ACTIVE_PLAN.rail) : null,
+      ACTIVE_PLAN?.railMode === 'auto' ? Number(ACTIVE_PLAN.rail) : null
+    ));
+  }
 
   // Compute depths using existing helper
   const depths = typeof computeDepthsFromTiers === 'function'
@@ -1404,7 +1292,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
   const sortedDepthsDesc = depthsAsc.slice().sort((a,b) => b - a);
 
   // Build graph HTML area first (so graph renders above/beside table as before)
-  const graphHTML = renderGraph(nodes, links, rootItem);
+  const graphHTML = `${complexLimitExceeded ? `<p class="graph-mode-notice" role="status">Complex view is paused for this plan because its estimated rendering cost is high (${complexCost.machineNodes} machine nodes, ${complexCost.supplyLinks} pooled supply links). The Simple graph remains available.</p>` : ''}${renderGraph(nodes, links, rootItem)}`;
 
   const graphArea = document.getElementById("graphArea");
   if (!graphArea) return;
@@ -1433,9 +1321,8 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
           <th>Output/machine</th>
           <th>Machines</th>
           <th>Machine Type</th>
-          <th>Machine Tier</th>
           <th>Inputs (per min)</th>
-          <th>Rails Needed</th>
+          <th>Input Rail</th>
         </tr>
       </thead>
       <tbody>
@@ -1447,7 +1334,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
     if (!rows.length) continue;
 
     const levelLabel = depthToLevelIndex[depth] ?? 0;
-    html += `<tr><td colspan="8"><strong>--- Level ${levelLabel} ---</strong></td></tr>`;
+    html += `<tr><td colspan="7"><strong>--- Level ${levelLabel} ---</strong></td></tr>`;
 
     // Sort items alphabetically within the level for stable ordering
     rows.sort((a,b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
@@ -1464,7 +1351,13 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
         outputPerMachine = Math.ceil((recipe.output * 60) / recipe.time);
       }
       machines = Number.isFinite(Number(data.machines)) ? Math.ceil(data.machines) : "—";
-      railsNeeded = computeRailsNeeded(data.inputs || {}, railSpeed);
+      const inputPorts = RAIL_PLANNING.recommendMachineInputPorts(
+        data.inputs || {},
+        Math.max(1, Math.ceil(Number(data.machines) || 1)),
+        ACTIVE_PLAN?.railMode === 'manual' ? railSpeed : null,
+        ACTIVE_PLAN?.railMode === 'auto' ? railSpeed : null
+      );
+      railsNeeded = `${inputPorts.inputNodesPerMachine} input node${inputPorts.inputNodesPerMachine === 1 ? '' : 's'}/machine, v${inputPorts.tier} each (${inputPorts.totalInputNodes} total)`;
 
       // Inputs: list each input as "Name: X/min" sorted by name; include raw inputs if present
       const inputsList = Object.entries(data.inputs || {})
@@ -1478,8 +1371,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
           <td>${Math.ceil(data.rate || 0)}</td>
           <td>${outputPerMachine}</td>
           <td>${machines}</td>
-          <td style="background-color:${fillColor}; color:#ffffff; text-shadow: 0 0 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.85);">${escapeHtml(data.building || "—")}</td>
-          <td>${RECIPES[item]?.altBuilding ? renderItemTierToggle(item) : ''}</td>
+          <td class="machine-type-cell" style="background-color:${fillColor}; color:#ffffff; text-shadow: 0 0 3px rgba(0,0,0,0.85), 0 0 1px rgba(0,0,0,0.85);"><span>${escapeHtml(data.building || "—")}</span>${RECIPES[item]?.altBuilding ? renderMachineTierToggle(item) : ''}</td>
           <td>${inputsList}</td>
           <td>${railsNeeded}</td>
         </tr>
@@ -1538,11 +1430,11 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
    Run calculator & UI wiring
    =============================== */
 function renderActivePlan() {
-  const { item, rate, rail, tier } = ACTIVE_PLAN;
+  const { item, rate, rail, tier, railMode = 'manual' } = ACTIVE_PLAN;
   const chainObj = expandChain(item, rate);
   renderTable(chainObj, item, rate, Number(rail));
 
-  const params = new URLSearchParams({ item, rate, rail, tier });
+  const params = new URLSearchParams({ item, rate, rail, tier, railMode });
   if (ITEM_TIER_OVERRIDES.size) {
     params.set('tiers', JSON.stringify(Object.fromEntries([...ITEM_TIER_OVERRIDES].sort(([first], [second]) => first.localeCompare(second)))));
   }
@@ -1579,7 +1471,8 @@ function runCalculator() {
   const rail = document.getElementById("railSelect").value;
   const tier = document.getElementById("tierSelect").value === 'v2' ? 'v2' : 'v1';
   if (ACTIVE_PLAN && ACTIVE_PLAN.tier !== tier) ITEM_TIER_OVERRIDES.clear();
-  ACTIVE_PLAN = { item, rate, rail, tier };
+  const railMode = document.getElementById('railModeToggle').dataset.mode;
+  ACTIVE_PLAN = { item, rate, rail, tier, railMode };
   SELECTED_GRAPH_NODE = null;
   renderActivePlan();
 }
@@ -1606,11 +1499,27 @@ async function init() {
   const itemSelect = document.getElementById('itemSelect');
   const rateInput = document.getElementById("rateInput");
   const railSelect = document.getElementById("railSelect");
+  const railSelectLabel = document.getElementById('railSelectLabel');
+  const railModeToggle = document.getElementById('railModeToggle');
+  const updateRailMode = () => {
+    const isManual = railModeToggle.dataset.mode === 'manual';
+    railSelect.disabled = false;
+    railSelectLabel.textContent = 'Rail Version:';
+    railModeToggle.textContent = `Rail Mode: ${isManual ? 'Manual' : 'Auto'}`;
+    railModeToggle.setAttribute('aria-label', `Rail Mode: ${isManual ? 'Manual' : 'Auto'}`);
+    railModeToggle.setAttribute('aria-pressed', String(isManual));
+  };
+  railModeToggle.addEventListener('click', () => {
+    railModeToggle.dataset.mode = railModeToggle.dataset.mode === 'auto' ? 'manual' : 'auto';
+    updateRailMode();
+  });
+  updateRailMode();
   const outputArea = document.getElementById("outputArea");
   outputArea?.addEventListener('click', event => {
     const button = event.target.closest('button[data-tier-item]');
     if (!button || !ACTIVE_PLAN || !['v1', 'v2'].includes(button.value)) return;
     const name = button.dataset.tierItem;
+    const isMachineTier = button.classList.contains('machine-tier-toggle');
     const nextTier = button.value === 'v1' ? 'v2' : 'v1';
     const previousTop = button.getBoundingClientRect().top;
     const previousScroll = outputArea.scrollLeft;
@@ -1618,7 +1527,7 @@ async function init() {
     else ITEM_TIER_OVERRIDES.delete(name);
     renderActivePlan();
     outputArea.scrollLeft = previousScroll;
-    const replacement = [...outputArea.querySelectorAll('[data-tier-item]')].find(element => element.dataset.tierItem === name);
+    const replacement = [...outputArea.querySelectorAll('[data-tier-item]')].find(element => element.dataset.tierItem === name && element.value === nextTier && element.classList.contains(isMachineTier ? 'machine-tier-toggle' : 'item-tier-toggle'));
     if (replacement) {
       replacement.focus({ preventScroll: true });
       window.scrollBy(0, replacement.getBoundingClientRect().top - previousTop);
@@ -1673,6 +1582,12 @@ async function init() {
   const sharedRate = params.get("rate");
   const sharedRail = params.get("rail");
   const sharedTier = params.get("tier");
+  if (params.get('railMode') === 'manual' || (!params.has('railMode') && params.has('rail'))) {
+    railModeToggle.dataset.mode = 'manual';
+  } else {
+    railModeToggle.dataset.mode = 'auto';
+  }
+  updateRailMode();
   const tierSelect = document.getElementById("tierSelect");
 
   if (sharedItem && itemSelect && !sharedItem.startsWith('_')) {

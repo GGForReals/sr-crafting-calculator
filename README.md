@@ -7,12 +7,17 @@ Maintained by GGforReals.
 ## 🔧 Features
 
 - Full production chain breakdown by crafting level, with an interactive pan/zoom graph
+- Simple view groups machines by product; Complex view expands individual machines and their pooled ingredient feeds. Single-machine steps omit redundant numbering. Graph detail is a session-only choice, not stored in shared links.
 - Click or tap a graph node to pulse it and its direct inputs; click again, click the background, or press Escape to clear. Enter and Space also select nodes, and reduced-motion users receive a static highlight
 - Machine type, output rate, and quantity calculations
 - **Per-item machine tier toggles (v1 / v2)** — click once to switch standard or upgraded buildings for each production step where both recipes exist; fixed-version machines have an empty tier cell
-- Starting Tier selects all v1 or all v2 (where available) when Calculate generates the plan; changing the starting tier waits for Calculate and resets individual overrides when applied
+- Machine Version selects all v1 or all v2 (where available) when Calculate generates the plan; changing the version waits for Calculate and resets individual overrides when applied
 - Input material flow rates per minute
 - Rail throughput selector — v1 through v5 (120 / 240 / 480 / 750 / 1500 per minute)
+- Auto/Manual rail planning: minimum suggested tiers for shared traffic segments, bypasses, and final output, with compact graph labels and material-flow tooltips. See [RAIL_PLANNING.md](RAIL_PLANNING.md) for routing assumptions and capacity limitations.
+- Machine input nodes are sized from aggregate ingredient demand per installed machine; shared rail segments are sized independently from all traffic crossing them.
+- Rail Connector junctions and advisory Modulator candidates for rail-count transitions in Complex view. These are steady-state planning estimates, not a verified factory blueprint or load-balancing simulation.
+- Complex expansion is guarded by estimated node and pooled-route work, rather than a fixed machine limit. Expensive plans retain the grouped graph with a notice.
 - Raw ore extraction breakdown (Impure / Normal / Pure), tier-aware for Ore Excavator v1 vs v2
 - Production and per-resource Ore Excavator tier changes update the displayed plan immediately, including its graph, machine counts, material requirements, and shareable link
 - Shareable links that preserve item, rate, rail, and machine tier settings
@@ -55,8 +60,9 @@ This replaces the previous Google Apps Script + Google Sheet + Cloudflare Worker
 
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the security review, completed checks, and unresolved hosting/third-party-script risks. Recipe data is validated in the browser, scraper, and publishing workflow.
 
-Run `npm test` after installing dependencies and Chromium. The browser regression test covers starting tiers, live mixed production and extraction tiers, isolation from pending setup edits, shared links (including legacy blanket-tier links), invalid overrides, Clear, and mobile layout, scroll, and focus preservation.
+Run `npm test` after installing dependencies and Chromium. The browser regression test covers machine versions, live mixed production and extraction tiers, isolation from pending setup edits, shared links (including legacy blanket-tier links), invalid overrides, Clear, and mobile layout, scroll, and focus preservation.
 Graph tests cover direct-input selection, raw resources, recipe redraws, keyboard activation, reduced motion, and mouse/touch panning without accidental selection.
+Rail tests also cover pooled feed conservation, graph modes, work-based expansion limits, rail-count transition hints, label bounds and spacing, and vertical labels attached to their own spans. Short machine-to-spine connector stubs intentionally have no inline label; each segment retains its hover details.
 
 ## 🐛 Issues, Ideas, or Corrections
 

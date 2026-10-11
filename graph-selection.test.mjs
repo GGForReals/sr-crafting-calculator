@@ -15,6 +15,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
         '/app.js': ['app.js', 'application/javascript'],
         '/style.css': ['style.css', 'text/css'],
         '/lib/recipeValidation.js': ['lib/recipeValidation.js', 'application/javascript'],
+        '/lib/railPlanning.js': ['lib/railPlanning.js', 'application/javascript'],
         '/data/recipes.json': ['data/recipes.json', 'application/json']
       };
       const asset = assets[url.pathname];
@@ -27,9 +28,9 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     const helium = page.locator('.graph-node[data-id="Liquid Helium"]');
     const pulsingIds = async () => (await page.locator('.graph-pulsing').evaluateAll(groups => groups.map(group => group.dataset.id))).sort();
     await page.waitForFunction(() => document.querySelector('#zoomLayer')?.hasAttribute('transform'));
-    const initialSize = await fuel.locator('circle').evaluate(circle => ({ width: circle.getBoundingClientRect().width, height: circle.getBoundingClientRect().height }));
+    const initialSize = await fuel.locator(':scope > circle').evaluate(circle => ({ width: circle.getBoundingClientRect().width, height: circle.getBoundingClientRect().height }));
     await fuel.click();
-    const selectedSize = await fuel.locator('circle').evaluate(circle => ({ width: circle.getBoundingClientRect().width, height: circle.getBoundingClientRect().height }));
+    const selectedSize = await fuel.locator(':scope > circle').evaluate(circle => ({ width: circle.getBoundingClientRect().width, height: circle.getBoundingClientRect().height }));
     assert.ok(Math.abs(selectedSize.width - initialSize.width) < 0.01);
     assert.ok(Math.abs(selectedSize.height - initialSize.height) < 0.01);
     assert.deepEqual(await pulsingIds(), ['Basic Fuel', 'Goethite Powder', 'Liquid Helium', 'Wolfram Powder'].sort());
@@ -39,7 +40,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     assert.deepEqual(await pulsingIds(), []);
     await helium.press('Enter');
     assert.deepEqual(await pulsingIds(), ['Liquid Helium', 'Hardening Agent', 'Pressurized Helium'].sort());
-    await page.locator('[data-tier-item="Liquid Helium"]').click();
+    await page.locator('.machine-tier-toggle[data-tier-item="Liquid Helium"]').click();
     assert.deepEqual(await pulsingIds(), ['Liquid Helium', 'Chemicals', 'Hardening Agent', 'Pressurized Helium'].sort());
     await helium.press('Space');
     assert.deepEqual(await pulsingIds(), []);
@@ -49,7 +50,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     await raw.press('Escape');
     assert.deepEqual(await pulsingIds(), []);
     await fuel.scrollIntoViewIfNeeded();
-    const circle = await fuel.locator('circle').boundingBox();
+    const circle = await fuel.locator(':scope > circle').boundingBox();
     const beforePan = await page.locator('#zoomLayer').getAttribute('transform');
     await page.mouse.move(circle.x + circle.width / 2, circle.y + circle.height / 2);
     await page.mouse.down();
@@ -63,7 +64,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     assert.deepEqual(await pulsingIds(), []);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await helium.press('Enter');
-    assert.equal(await helium.locator('circle').evaluate(circle => getComputedStyle(circle).animationName), 'none');
+    assert.equal(await helium.locator(':scope > circle').evaluate(circle => getComputedStyle(circle).animationName), 'none');
     assert.equal(await helium.getAttribute('aria-pressed'), 'true');
 
     const mobile = await browser.newPage(devices['Pixel 5']);
@@ -74,7 +75,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     assert.deepEqual((await mobile.locator('.graph-pulsing').evaluateAll(groups => groups.map(group => group.dataset.id))).sort(), ['Calcium Powder', 'Calcium Block'].sort());
     await powder.tap();
     assert.equal(await mobile.locator('.graph-pulsing').count(), 0);
-    const touchCircle = await powder.locator('circle').boundingBox();
+    const touchCircle = await powder.locator(':scope > circle').boundingBox();
     const touchX = touchCircle.x + touchCircle.width / 2;
     const touchY = touchCircle.y + touchCircle.height / 2;
     const beforeTouchPan = await mobile.locator('#zoomLayer').getAttribute('transform');
@@ -84,6 +85,15 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     assert.notEqual(await mobile.locator('#zoomLayer').getAttribute('transform'), beforeTouchPan);
     assert.equal(await mobile.locator('.graph-pulsing').count(), 0);
+    const graphBounds = await mobile.locator('.graphSVG').boundingBox();
+    const pinchX = graphBounds.x + graphBounds.width / 2;
+    const pinchY = graphBounds.y + graphBounds.height / 2;
+    const getScale = async () => Number((await mobile.locator('#zoomLayer').getAttribute('transform')).match(/scale\(([^)]+)\)/)[1]);
+    const beforePinchScale = await getScale();
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 1, x: pinchX - 30, y: pinchY }, { id: 2, x: pinchX + 30, y: pinchY }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ id: 1, x: pinchX - 60, y: pinchY }, { id: 2, x: pinchX + 60, y: pinchY }] });
+    assert.notEqual(await getScale(), beforePinchScale);
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await mobile.locator('#resetViewBtn').click();
     await powder.tap();
     assert.equal(await powder.getAttribute('aria-pressed'), 'true');
@@ -97,7 +107,7 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
       return { plate: Number(circleFor('Wolfram Plate').getAttribute('cx')), powder: Number(circleFor('Wolfram Powder').getAttribute('cx')) };
     });
     assert.ok(positions.powder < positions.plate);
-    await page.locator('[data-tier-item="Wolfram Plate"]').click();
+    await page.locator('.machine-tier-toggle[data-tier-item="Wolfram Plate"]').click();
     assert.deepEqual(await pulsingIds(), ['Wolfram Plate', 'Wolfram Bar'].sort());
 
     const violations = await page.evaluate(() => {

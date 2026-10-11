@@ -16,7 +16,8 @@ test('hostile URLs and imported strings cannot execute HTML or corrupt calculato
         '/': ['index.html', 'text/html'],
         '/app.js': ['app.js', 'application/javascript'],
         '/style.css': ['style.css', 'text/css'],
-        '/lib/recipeValidation.js': ['lib/recipeValidation.js', 'application/javascript']
+        '/lib/recipeValidation.js': ['lib/recipeValidation.js', 'application/javascript'],
+        '/lib/railPlanning.js': ['lib/railPlanning.js', 'application/javascript']
       };
       const asset = assets[url.pathname];
       if (!asset) return route.fulfill({ status: 404, body: 'Not found' });

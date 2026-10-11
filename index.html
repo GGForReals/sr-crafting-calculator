@@ -9,7 +9,7 @@
   <link rel="icon" href="data/SRCC_Icon.png" type="image/png">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=20261003-footer" />
+  <link rel="stylesheet" href="style.css?v=20261011-mobile-graph-polish" />
 </head>
 
 <body>
@@ -54,16 +54,18 @@
       <label for="rateInput">Rate (/min):</label>
       <input type="number" id="rateInput" value="60" min="0" step="1" />
 
-      <label for="railSelect">Rail Type:</label>
+      <button id="railModeToggle" class="rail-mode-toggle" type="button" data-mode="auto" aria-pressed="false" aria-label="Rail Mode: Auto">Rail Mode: Auto</button>
+
+      <label id="railSelectLabel" for="railSelect">Rail Version:</label>
       <select id="railSelect">
-        <option value="120">v1 (120/min)</option>
+        <option value="120" selected>v1 (120/min)</option>
         <option value="240" selected>v2 (240/min)</option>
         <option value="480">v3 (480/min)</option>
         <option value="750">v4 (750/min)</option>
         <option value="1500">v5 (1500/min)</option>
       </select>
 
-      <label for="tierSelect">Starting Tier:</label>
+      <label for="tierSelect">Machine Version:</label>
       <select id="tierSelect">
         <option value="v1" selected>All v1 (Standard)</option>
         <option value="v2">All v2 (Upgraded)</option>
@@ -81,17 +83,19 @@
 
       <h4>How to Use</h4>
       <ul>
-        <li><strong>Select an item</strong> from the dropdown to choose the product you want to plan.</li>
-        <li><strong>Set your target rate</strong> (units per minute), Rail Type, and Starting Tier (all v1 or all v2 where available). Click Calculate to expand the full production chain.</li>
+        <li><strong>Select an item</strong> from the Item dropdown to choose the product you want to plan.</li>
+        <li><strong>Set your target rate</strong> in Rate (units per minute), then choose Rail Mode, Rail Version, and Machine Version (all v1 or all v2 where available). Click Calculate to expand the full production chain.</li>
+        <li><strong>Plan rail traffic</strong> with Rail Mode set to Auto to cap recommendations at Rail Version, or Manual to apply that exact version. Auto adds parallel rails at that cap when needed. Graph labels show the tier; hover a rail for its combined items/min and materials, or the final product for its output rail recommendation.</li>
+        <li><strong>Graph detail:</strong> Simple groups machines by product; Complex shows individual machines with evenly shared ingredient supply. This pooled layout is a planning assumption, not guaranteed in-game routing. Large pooled networks retain the grouped graph when estimated rendering work is too high.</li>
+        <li><strong>Rail estimates:</strong> input nodes use ingredient demand per machine, while shared rails use the combined traffic on each span. Short machine connectors intentionally have no inline value; their hover details remain available. White junctions represent Rail Connectors; highlighted Modulator candidates are advisory rail-count transitions, currently supported up to five rails.</li>
         <li><strong>Mix machine tiers</strong> by clicking a row's v1 or v2 button. Production and Ore Excavator requirements update immediately, without another Calculate click. Blank tier cells mean there is no alternate version.</li>
-        <li><strong>Change your setup</strong> at the top and click Calculate to apply it. Applying a different Starting Tier resets individual tier choices.</li>
-        <li><strong>Inspect the graph</strong> by clicking or tapping a node to pulse it and only its immediate inputs. Click again, click the background, or press Escape to clear. Enter or Space selects a focused node; reduced-motion settings use a static highlight.</li>
+        <li><strong>Change your setup</strong> at the top and click Calculate to apply it. Applying a different Machine Version resets individual version choices.</li>
+        <li><strong>Inspect the graph</strong> by clicking or tapping a node to pulse it and its immediate inputs and highlight its incoming rail routes. Click again, click the background, or press Escape to clear. Enter or Space selects a focused node; reduced-motion settings use a static highlight.</li>
         <li><strong>Pan and zoom</strong> freely; use Reset view to recenter the graph if you lose your place.</li>
-        <li><strong>View production details</strong> by crafting level, including output per machine, machine counts, input rates, and rails needed at your selected rail capacity.</li>
+        <li><strong>View production details</strong> by crafting level, including output per machine, machine counts, input rates, and the rail serving each item's combined inputs.</li>
         <li><strong>View totals</strong> in the summary tables for machines and raw extraction needs, including Impure, Normal, and Pure ore deposits where applicable.</li>
-        <li><strong>Use on mobile</strong> with touch-friendly controls and horizontally scrolling tables. Production item names stay visible as you scroll.</li>
-        <li><strong>Share setups</strong> with the Share button to copy a link that preserves the calculated item, rate, rail, Starting Tier, and individual tier choices. Opening the link restores the plan.</li>
-        <li><strong>Start fresh</strong> with Clear to reset the setup and tier choices. Use the theme button to switch between light and dark mode.</li>
+        <li><strong>Share setups</strong> with Share to copy a link that preserves Item, Rate, Rail Mode, Rail Version, Machine Version, and individual version choices. Opening the link restores the plan; Simple/Complex detail is a page-session choice and is not shared.</li>
+        <li><strong>Start fresh</strong> with Clear to reset the setup and tier choices. Use Light Mode or Dark Mode to switch the theme.</li>
       </ul>
 
       <h4>Issues, Ideas, or Corrections</h4>
@@ -113,7 +117,7 @@
   <!-- ============================
        MAIN SCRIPT
   ============================= -->
-  <script src="app.js?v=20261003-rate-defaults"></script>
+  <script src="app.js?v=20261011-rail-local-labels"></script>
 
 
   <!-- ⭐ Ko-fi Floating Support Button -->

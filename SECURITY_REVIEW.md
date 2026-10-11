@@ -2,6 +2,28 @@
 
 Review date: 2026-10-03. Scope: the SR crafting calculator working tree, its recipe scraper and updater workflow, dependency advisories, repository history secrets, and public response headers. No changes were pushed or deployed.
 
+## Release Refresh: 2026-10-11
+
+- Reviewed the pending graph, pooled-feed expansion, cost guard, URL/data handling, SVG escaping, and workflow changes. No new concrete injection vulnerability was identified. This is a scoped review, not proof that every input or availability edge case is safe; the work-budget heuristic is not a guaranteed browser resource bound.
+- `npm audit --json`: zero known advisories across runtime and development dependencies. External scripts and browser binaries are not covered by this audit.
+- Gitleaks v8.30.1: no detected secrets across all 476 local commits or the current worktree, including untracked files. Reports used redaction and the directory scan used a 2 MB per-file limit. Pattern-based detection and local history coverage have limits.
+- `npm test`: 23/23 tests passed, including hostile-input browser tests and graph regressions. `node scripts/validate-recipes.mjs` validated 96 recipes, including alternate recipes and dependency cycles. `git diff --check` was clean.
+- Production HTTP HEAD followed a redirect to HTTPS and returned 200. HTTPS HEAD still lacked HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy.
+- Nuclei v3.11.1 with official templates v10.5.0 ran only three reviewed signed templates: `http-missing-security-headers`, `robots-txt`, and `security-txt`. Target: `https://starrupturecraftingcalculator.com`; concurrency 1, rate limit 2 requests/second, external callbacks disabled, no fuzzing/code/headless templates or third-party targets. The completed scan reported 10 informational missing-header matches; the two public-file templates produced no matches. This was not a broad CVE or exploit scan. Not every reported header is necessarily appropriate for this site; cross-origin isolation policies need compatibility review.
+- Separate public GET checks of `/.git/config`, `/.git/HEAD`, and `/.env` each returned 404. Response bodies and potential secrets were not printed.
+- Scanner archives were downloaded from pinned official GitHub releases to a temporary folder and matched the published SHA-256 checksum files. This checks download integrity against the release source, not an independent assessment of scanner safety. Redacted Gitleaks reports and the Nuclei JSONL report are outside the repository in the temporary `srcc-security-refresh-20261011` folder.
+- actionlint was not available on PATH and was not rerun in this refresh; the earlier result remains historical. The recipe workflow's successful publish path, branch protections, and GitHub Pages configuration were not verified in this pass. No code was committed, pushed, or deployed. Production checks assess the currently deployed site, not the pending local graph changes.
+
+Remaining follow-up: plan a compatible response-header policy on the hosting layer, verify the recipe workflow and publishing configuration, and smoke-test the deployed release after publication. The previously accepted Ko-fi script trust remains unchanged. No new demonstrated release-blocking exploit was found in these checks, but the missing defense-in-depth headers remain an open hardening gap.
+
+### Release Preparation Follow-Up: 2026-10-11
+
+- Authenticated read-only GitHub CLI queries verified Pages publishes `main` from `/`, with custom domain `starrupturecraftingcalculator.com`, HTTPS enforcement enabled, and status `built`. The latest published commit was `92d4db061c488c943b58ad132bb8fcb0230963df`; local HEAD and remote `main` both matched it before the pending release commit.
+- Recipe workflow run [38052287389](https://github.com/GGForReals/sr-crafting-calculator/actions/runs/38052287389), created 2026-10-10, completed successfully. Both scrape and publish jobs succeeded, including artifact upload/download, revalidation, and the conditional commit/push step. Job success alone does not prove new recipe data was pushed; the step may take the no-change path. No workflow was triggered during release preparation.
+- Live local Playwright smoke checks passed at 390 x 844 and 320 x 740, plus a Pixel 5 touch context: mode switching, selection and input/route highlights, tap-to-clear, pinch zoom, pan without accidental selection, Reset view, label visibility, and expensive-plan fallback. No page errors occurred in the touch check. Subsequent mobile polish made graph buttons at least 44 px tall and widened the fallback notice to 265 px at a 320 px viewport, with no horizontal overflow; automated regression coverage was added.
+- Final full validation after mobile polish: `npm test` passed 23/23; dataset validation passed 96 recipes. The release inventory contains eight modified tracked files and three new files: `RAIL_PLANNING.md`, `lib/railPlanning.js`, and `rail-planning.test.mjs`. All three new files must accompany the app changes. Differing per-asset cache-version suffixes are not by themselves a cache defect; a changed asset needs its own URL version updated.
+- Commit, push, and production deployment remain deferred by the site owner. After publishing, verify the Pages build for the new commit and smoke-test the production assets and representative Simple/Complex plans. Branch-protection settings and a compatible security-header policy remain outside these completed checks.
+
 ## Checks and Results
 
 - Manual code review of HTML/SVG output encoding, shared URL parameters, recipe ingestion, graph handlers, clipboard use, remote scripts, scraper navigation, and workflow credentials.
