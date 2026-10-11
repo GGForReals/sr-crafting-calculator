@@ -71,6 +71,39 @@ test('hostile URLs and imported strings cannot execute HTML or corrupt calculato
     assert.equal(await page.evaluate(() => Object.prototype.polluted), undefined);
     assert.equal(await page.locator('.graph-node').count(), 0);
 
+    await page.goto('http://calculator.test/');
+    await page.waitForFunction(() => document.querySelector('#itemSelect').options.length > 1);
+    const guardedPlans = await page.evaluate(() => {
+      const original = RAIL_PLANNING;
+      let expansions = 0;
+      RAIL_PLANNING = { ...original, expandPooledMachineGraph: () => {
+        expansions++;
+        throw new Error('Oversized plans must be guarded before expansion');
+      } };
+      try {
+        GRAPH_MODE = 'complex';
+        return [1000000, 1000000000].map(rate => {
+          ACTIVE_PLAN = { item: 'Carbon Sonar', rate, tier: 'v2', rail: '1500', railMode: 'auto' };
+          renderActivePlan();
+          return {
+            rate,
+            expansions,
+            fallback: !!document.querySelector('.graph-mode-notice'),
+            nodeCount: document.querySelectorAll('.graph-node').length,
+            expandedNodes: document.querySelectorAll('.graph-node[data-id*="::"]').length
+          };
+        });
+      } finally {
+        RAIL_PLANNING = original;
+      }
+    });
+    for (const plan of guardedPlans) {
+      assert.equal(plan.expansions, 0);
+      assert.equal(plan.fallback, true);
+      assert.ok(plan.nodeCount > 0 && plan.nodeCount < 100);
+      assert.equal(plan.expandedNodes, 0);
+    }
+
     const item = '<img src=x onerror="window.__xss = true">';
     const raw = '<svg onload="window.__xss = true">';
     fixture = { [item]: { inputs: { [raw]: 1 }, output: 1, time: 3, building: '<img src=x onerror="window.__xss = true">' } };
@@ -80,6 +113,13 @@ test('hostile URLs and imported strings cannot execute HTML or corrupt calculato
     assert.equal(await page.locator('#outputArea img, #graphArea img').count(), 0);
     assert.equal(await page.locator('.graph-node').count(), 2);
     assert.ok((await page.locator('#outputArea').innerText()).includes(item));
+    await page.locator('[data-graph-mode="complex"]').click();
+    assert.equal(await page.locator('.graph-machine').count(), 6);
+    await page.locator('.graph-machine > circle').first().click();
+    assert.equal(await page.locator('.graph-input').count(), 1);
+    assert.ok(await page.locator('.rail-selected').count() > 0);
+    assert.equal(await page.evaluate(() => window.__xss), undefined);
+    assert.equal(await page.locator('#outputArea img, #graphArea img, #graphArea svg svg').count(), 0);
 
     fixture = JSON.parse('{"Item":{"inputs":{"constructor":1},"output":1,"time":3,"building":"Furnace"}}');
     await page.goto('http://calculator.test/');

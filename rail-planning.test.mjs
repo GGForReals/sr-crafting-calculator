@@ -234,6 +234,9 @@ test('browser rail plans conserve demand, suggest sufficient capacity, and resto
     const simpleNodeCount = await page.locator('.graph-node').count();
     const complexMode = page.locator('[data-graph-mode="complex"]');
     assert.equal(await page.locator('[data-graph-mode="simple"]').getAttribute('aria-pressed'), 'true');
+    await page.evaluate(() => {
+      RAIL_PLANNING = { ...RAIL_PLANNING, expandMachineGraph: () => { throw new Error('Complex rendering must not allocate pairwise links'); } };
+    });
     await complexMode.click();
     await page.waitForSelector('.graph-node[data-id="Standard Ammo::1"]');
     assert.equal(await page.locator('.graph-node[data-product-id="Standard Ammo"]').count(), 8);
@@ -336,6 +339,26 @@ test('browser rail plans conserve demand, suggest sufficient capacity, and resto
         assert.ok(separated, `Rail labels are too close: ${a.x},${a.y} and ${b.x},${b.y}`);
       }
     }
+    const v1InputGutters = await page.evaluate(() => {
+      const labels = [...document.querySelectorAll('.rail-tier-label')];
+      return [...document.querySelectorAll('.rail-segment')].flatMap(segment => {
+        const line = segment.querySelector('line');
+        const x = Number(line.getAttribute('x1'));
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        if (x !== Number(line.getAttribute('x2')) || ![280, 500].includes(x) || y1 < 100 || y2 > 580) return [];
+        const label = labels.find(value => value.dataset.railRun === segment.dataset.railSegment);
+        return [{
+          expected: `${Number(segment.dataset.count) > 1 ? segment.dataset.count + ' x ' : ''}v${segment.dataset.tier}`,
+          text: label?.textContent,
+          midpoint: (y1 + y2) / 2,
+          labelY: label ? Number(label.getAttribute('y')) : null,
+          offset: label ? x - Number(label.getAttribute('x')) : null
+        }];
+      });
+    });
+    assert.equal(v1InputGutters.length, 8);
+    assert.ok(v1InputGutters.every(label => label.text === label.expected && label.labelY === label.midpoint && label.offset === 12));
     const pooledOnboardFeeds = await page.evaluate(() => {
       ACTIVE_PLAN.rate = 5;
       GRAPH_MODE = 'complex';
@@ -449,7 +472,13 @@ test('complex graph guard estimates pooled route work instead of imposing a mach
   ], [{ from: 'Root', to: 'Part', rate: 100 }], 'Root');
   assert.equal(denseFanOut.supplyLinks, 10000);
   assert.equal(denseFanOut.routeLegs, 50100);
-  assert.ok(denseFanOut.workUnits > COMPLEX_GRAPH_WORK_LIMIT);
+  assert.equal(denseFanOut.aggregatedRouteLegs, 501);
+  assert.ok(denseFanOut.workUnits < COMPLEX_GRAPH_WORK_LIMIT);
+  const oversized = estimateComplexGraphCost([
+    { id: 'Part', raw: false, machines: 2000 },
+    { id: 'Root', raw: false, machines: 2000 }
+  ], [{ from: 'Root', to: 'Part', rate: 100 }], 'Root');
+  assert.ok(oversized.workUnits > COMPLEX_GRAPH_WORK_LIMIT);
 });
 
 test('rail labels group continuous segments only while their recommendation and direction match', () => {

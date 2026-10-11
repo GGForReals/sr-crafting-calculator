@@ -238,7 +238,7 @@ async function fetchJson(url) {
 }
 
 async function loadRecipes() {
-  RAIL_PLANNING = await import('./lib/railPlanning.js?v=20261011-centered-span-labels');
+  RAIL_PLANNING = await import('./lib/railPlanning.js?v=20261011-aggregated-routing');
   const { validateRecipeDataset } = await import('./lib/recipeValidation.js');
   const localPath = "data/recipes.json";
   const remotePath = "https://srcraftingcalculations.github.io/sr-crafting-calculator/data/recipes.json";
@@ -803,6 +803,15 @@ function buildGraphData(chain, rootItem) {
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const LABEL_OFFSET = 6;
+  const pooled = nodes.some(node => node.machineIndex !== undefined);
+  const productGroups = new Map();
+  for (const node of nodes) {
+    const product = node.productId || node.id;
+    if (!productGroups.has(product)) productGroups.set(product, []);
+    productGroups.get(product).push(node.id);
+  }
+  const nodeById = new Map(nodes.map(node => [node.id, node]));
+  const nodeForLink = id => nodeById.get(id) || nodeById.get(productGroups.get(id)?.[0]);
 
   const BYPASS_RADIUS = 5;
   const BYPASS_Y_OFFSET = 34;
@@ -851,8 +860,8 @@ function renderGraph(nodes, links, rootItem) {
 
   // Links are consumer -> input
   for (const link of links) {
-    const consumer = nodes.find(n => n.id === link.from);
-    const producer = nodes.find(n => n.id === link.to);
+    const consumer = nodeForLink(link.from);
+    const producer = nodeForLink(link.to);
     if (!consumer || !producer) continue;
 
     const gap = consumer.depth - producer.depth;
@@ -913,10 +922,10 @@ function renderGraph(nodes, links, rootItem) {
   const directInputs = new Map();
   for (const link of links) {
     if (!directInputs.has(link.from)) directInputs.set(link.from, []);
-    directInputs.get(link.from).push(link.to);
+    directInputs.get(link.from).push(...(pooled ? productGroups.get(link.to) || [] : [link.to]));
   }
   const railLabelObstacles = [];
-  const labelClearance = 8;
+  const labelClearance = 4;
   function overlapsRailLabel(bounds) {
     return railLabelObstacles.some(obstacle =>
       bounds.left < obstacle.right && bounds.right > obstacle.left &&
@@ -960,7 +969,9 @@ function renderGraph(nodes, links, rootItem) {
     return null;
   }
 
-  const railSegments = RAIL_PLANNING.buildRailSegments(nodes, links, rootItem);
+  const railSegments = pooled
+    ? RAIL_PLANNING.buildAggregatedRailSegments(nodes, links, rootItem)
+    : RAIL_PLANNING.buildRailSegments(nodes, links, rootItem);
   const manualCapacity = ACTIVE_PLAN?.railMode === 'manual' ? Number(ACTIVE_PLAN.rail) : null;
   const maxAvailableCapacity = ACTIVE_PLAN?.railMode === 'auto' ? Number(ACTIVE_PLAN.rail) : null;
   const railRecommendations = railSegments.map(segment =>
@@ -1053,7 +1064,7 @@ function renderGraph(nodes, links, rootItem) {
         : "";
 
     inner += `
-      <g class="graph-node ${node.raw ? 'graph-source' : 'graph-machine'}" data-node-kind="${node.kind}" data-id="${escapeHtml(node.id)}" data-product-id="${escapeHtml(node.productId || node.id)}" data-inputs="${escapeHtml(JSON.stringify(directInputs.get(node.id) || []))}" tabindex="0" role="button" aria-label="${node.raw ? `Raw source ${escapeHtml(node.id)}` : `Inspect inputs for ${escapeHtml(node.id)}`}" aria-pressed="false">
+      <g class="graph-node ${node.raw ? 'graph-source' : 'graph-machine'}" data-node-kind="${node.kind}" data-id="${escapeHtml(node.id)}" data-product-id="${escapeHtml(node.productId || node.id)}" data-inputs="${escapeHtml(JSON.stringify(directInputs.get(pooled ? node.productId : node.id) || []))}" tabindex="0" role="button" aria-label="${node.raw ? `Raw source ${escapeHtml(node.id)}` : `Inspect inputs for ${escapeHtml(node.id)}`}" aria-pressed="false">
         ${node.raw ? `<title>Raw source: ${escapeHtml(node.id)}. Supplies ${Number(node.rate.toFixed(2))}/min to its recipe consumers.</title>` : ''}
         ${(node.productId || node.id) === rootItem ? (() => {
           const outputRail = RAIL_PLANNING.recommendRail(node.rate, manualCapacity, maxAvailableCapacity);
@@ -1102,7 +1113,7 @@ function renderGraph(nodes, links, rootItem) {
           const description = `${ports.inputNodesPerMachine} input node${ports.inputNodesPerMachine === 1 ? '' : 's'} at v${ports.tier} per machine.`;
           return `<g class="machine-input-ports" data-input-nodes-per-machine="${ports.inputNodesPerMachine}" data-total-input-nodes="${ports.totalInputNodes}" data-input-rate-per-machine="${ports.ratePerMachine}" data-rail-tier="${ports.tier}" data-rail-count-per-machine="${ports.count}"><title>${description} ${Number(ports.ratePerMachine.toFixed(2))}/min aggregate inputs per machine; ${ports.totalInputNodes} total selected-tier input nodes across ${ports.machineCount} machines. Items may share each rail under pull demand.</title>${portMarkers}${overflow}</g>`;
         })() : ''}
-        ${node.raw || productInputs.has(node.id) ? `<g class="node-output-feed" data-node-kind="${node.raw ? 'raw-source-output' : 'machine-output'}"><title>${node.raw ? 'Raw source output feed' : 'Product output feed'}: ${Number(node.rate.toFixed(2))}/min</title><circle cx="${node.x + nodeRadius}" cy="${node.y}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" /></g>` : ''}
+        ${node.raw || productInputs.has(pooled ? node.productId : node.id) ? `<g class="node-output-feed" data-node-kind="${node.raw ? 'raw-source-output' : 'machine-output'}"><title>${node.raw ? 'Raw source output feed' : 'Product output feed'}: ${Number(node.rate.toFixed(2))}/min</title><circle cx="${node.x + nodeRadius}" cy="${node.y}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" /></g>` : ''}
 
         <!-- machine count inside node -->
         ${
@@ -1214,7 +1225,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
   const complexCost = RAIL_PLANNING.estimateComplexGraphCost(nodes, links, rootItem);
   const complexLimitExceeded = GRAPH_MODE === 'complex' && complexCost.workUnits > RAIL_PLANNING.COMPLEX_GRAPH_WORK_LIMIT;
   if (GRAPH_MODE === 'complex' && !complexLimitExceeded) {
-    ({ nodes, links } = RAIL_PLANNING.expandMachineGraph(
+    ({ nodes, links } = RAIL_PLANNING.expandPooledMachineGraph(
       nodes,
       links,
       rootItem,
@@ -1269,7 +1280,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
   const sortedDepthsDesc = depthsAsc.slice().sort((a,b) => b - a);
 
   // Build graph HTML area first (so graph renders above/beside table as before)
-  const graphHTML = `${complexLimitExceeded ? `<p class="graph-mode-notice" role="status">Complex view is paused for this plan because its estimated rendering cost is high (${complexCost.machineNodes} machine nodes, ${complexCost.supplyLinks} pooled supply links). The Simple graph remains available.</p>` : ''}${renderGraph(nodes, links, rootItem)}`;
+  const graphHTML = `${complexLimitExceeded ? `<p class="graph-mode-notice" role="status">Complex view is paused for this plan because its estimated rendering cost is high (${complexCost.machineNodes} machine nodes, ${complexCost.aggregatedRouteLegs} estimated route legs). The Simple graph remains available.</p>` : ''}${renderGraph(nodes, links, rootItem)}`;
 
   const graphArea = document.getElementById("graphArea");
   if (!graphArea) return;
