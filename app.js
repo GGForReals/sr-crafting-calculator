@@ -12,7 +12,6 @@
    =============================== */
 const MACHINE_COL_WIDTH = 220;
 const GRAPH_ROW_HEIGHT = 120;
-const GRAPH_LABEL_OFFSET = 40;
 const GRAPH_CONTENT_PAD = 64;
 
 const MACHINE_COLORS = {
@@ -97,14 +96,6 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-function getTextColor(bg) {
-  if (!bg || bg[0] !== "#") return "#000000";
-  const r = parseInt(bg.substr(1, 2), 16);
-  const g = parseInt(bg.substr(3, 2), 16);
-  const b = parseInt(bg.substr(5, 2), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
-  return luminance > 150 ? "#000000" : "#ffffff";
 }
 
 /* ===============================
@@ -809,10 +800,6 @@ function buildGraphData(chain, rootItem) {
   return { nodes, links };
 }
 
-// Updated renderGraph: draws direct center→center lines for raw→consumer links,
-// and also handles the common case where the link is reversed in the data
-// (consumer -> raw) by flipping it so a visible raw->consumer center line is emitted.
-// Also ensures no left helper/anchor is created for raw nodes in the far-left column.
 function renderGraph(nodes, links, rootItem) {
   const nodeRadius = 22;
   const LABEL_OFFSET = 6;
@@ -826,8 +813,6 @@ function renderGraph(nodes, links, rootItem) {
   // Defaults
   // ---------------------------------
   for (const n of nodes) {
-    if (typeof n.hasInputAnchor === 'undefined') n.hasInputAnchor = true;
-    if (typeof n.hasOutputAnchor === 'undefined') n.hasOutputAnchor = true;
     if (typeof n.depth === 'undefined') n.depth = 0;
     if (typeof n.machines === 'undefined') n.machines = 0;
   }
@@ -995,9 +980,6 @@ function renderGraph(nodes, links, rootItem) {
     const horizontal = segment.y1 === segment.y2;
     const midpointX = (segment.x1 + segment.x2) / 2;
     const midpointY = (segment.y1 + segment.y2) / 2;
-    const fixed = horizontal ? segment.y1 : segment.x1;
-    const start = horizontal ? segment.x1 : segment.y1;
-    const end = horizontal ? segment.x2 : segment.y2;
     const isMachineConnector = nodeEndpoints.has(`${segment.x1}:${segment.y1}`) || nodeEndpoints.has(`${segment.x2}:${segment.y2}`);
     const arrow = horizontal
       ? `${midpointX + segment.direction * 7},${midpointY} ${midpointX - segment.direction * 3},${midpointY - 4} ${midpointX - segment.direction * 3},${midpointY + 4}`
@@ -1222,11 +1204,6 @@ function attachNodePointerHandlers(wrapper) {
 /* ===============================
    Render table + graph
    =============================== */
-function computeRailsNeeded(inputRates, railSpeed) {
-  const total = Object.values(inputRates).reduce((sum, val) => sum + val, 0);
-  return railSpeed && railSpeed > 0 ? Math.ceil(total / railSpeed) : "—";
-}
-
 function renderTable(chainObj, rootItem, rate, railSpeed) {
   const { chain, machineTotals, extractorTotals } = chainObj;
 

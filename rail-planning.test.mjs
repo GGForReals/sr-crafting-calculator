@@ -351,7 +351,6 @@ test('browser rail plans conserve demand, suggest sufficient capacity, and resto
     }));
     assert.ok(railLabelDensity.segmentCount > 100);
     assert.ok(railLabelDensity.labelCount > 25, `Rail labels unexpectedly suppressed: ${railLabelDensity.labelCount}`);
-    assert.ok(railLabelDensity.labelCount > 25, `Rail labels unexpectedly suppressed: ${railLabelDensity.labelCount}`);
     assert.ok(railLabelDensity.labelCount <= railLabelDensity.segmentCount);
 
     await page.setViewportSize({ width: 320, height: 740 });

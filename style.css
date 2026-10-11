@@ -82,8 +82,7 @@ background-repeat: no-repeat;
 background-color: #1a0a05;
 box-shadow: inset 0 0 80px rgba(0,0,0,0.6);
 }
-#headerBanner { display: none; }
-header > *:not(#headerBanner) { position: absolute; z-index: 2; }
+header > * { position: absolute; z-index: 2; }
 
 #logoBox {
 top: 50%;
