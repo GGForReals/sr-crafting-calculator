@@ -1,0 +1,70 @@
+name: Cross-check Crafting Recipes
+
+# data/recipes.json is extracted from the installed game and committed from a developer
+# machine (see README). GitHub Actions has no game files, so this workflow cannot produce
+# the dataset; it only re-scrapes starrupture.tools and reports how far that third-party
+# source has drifted from the authoritative game data. It never publishes.
+
+on:
+  schedule:
+    # 06:17 UTC every Monday
+    - cron: '17 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-check-crafting-recipes
+  cancel-in-progress: false
+
+jobs:
+  cross-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run regression and security tests
+        run: npm test
+
+      # Fails the run if the site is unreachable or starts blocking us again, instead of
+      # silently keeping the previous dataset.
+      - name: Scrape starrupture.tools
+        run: npm run scrape-recipes
+
+      - name: Validate scraped dataset
+        run: node scripts/validate-recipes.mjs
+
+      - name: Report drift from the committed game-extracted data
+        run: |
+          {
+            echo "## starrupture.tools cross-check"
+            echo
+            if git diff --quiet -- data/recipes.json; then
+              echo "The scraped site data matches the committed game-extracted data."
+            else
+              echo "The scraped site data differs from the committed game-extracted data."
+              echo "This is expected whenever the site has not caught up with a game update."
+              echo
+              echo '```diff'
+              git --no-pager diff -- data/recipes.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Discard scraped data
+        run: git checkout -- data/recipes.json

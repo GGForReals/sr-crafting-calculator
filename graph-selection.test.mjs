@@ -41,7 +41,8 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     await helium.press('Enter');
     assert.deepEqual(await pulsingIds(), ['Liquid Helium', 'Hardening Agent', 'Pressurized Helium'].sort());
     await page.locator('.machine-tier-toggle[data-tier-item="Liquid Helium"]').click();
-    assert.deepEqual(await pulsingIds(), ['Liquid Helium', 'Chemicals', 'Hardening Agent', 'Pressurized Helium'].sort());
+    // The v.2 recipe changes the ingredient amounts but uses the same ingredients.
+    assert.deepEqual(await pulsingIds(), ['Liquid Helium', 'Hardening Agent', 'Pressurized Helium'].sort());
     await helium.press('Space');
     assert.deepEqual(await pulsingIds(), []);
     const raw = page.locator('.graph-node[data-id="Wolfram Ore"]');
@@ -98,17 +99,17 @@ test('graph selection pulses only the chosen node and its direct inputs', async 
     await powder.tap();
     assert.equal(await powder.getAttribute('aria-pressed'), 'true');
 
-    await page.goto('http://calculator.test/?item=Rotor&rate=120&rail=120&tier=v2');
-    const plate = page.locator('.graph-node[data-id="Wolfram Plate"]');
-    await plate.click();
-    assert.deepEqual(await pulsingIds(), ['Wolfram Plate', 'Wolfram Powder', 'Wolfram Bar'].sort());
+    await page.goto('http://calculator.test/?item=Pressure%20Tank&rate=120&rail=120&tier=v2');
+    const sheet = page.locator('.graph-node[data-id="Heat Resistant Sheet"]');
+    await sheet.click();
+    assert.deepEqual(await pulsingIds(), ['Heat Resistant Sheet', 'Helium-3', 'Titanoferrite Ingot', 'Wolfram Steel Ingot'].sort());
     const positions = await page.evaluate(() => {
       const circleFor = name => [...document.querySelectorAll('.graph-node')].find(node => node.dataset.id === name).querySelector('circle');
-      return { plate: Number(circleFor('Wolfram Plate').getAttribute('cx')), powder: Number(circleFor('Wolfram Powder').getAttribute('cx')) };
+      return { sheet: Number(circleFor('Heat Resistant Sheet').getAttribute('cx')), ingot: Number(circleFor('Titanoferrite Ingot').getAttribute('cx')) };
     });
-    assert.ok(positions.powder < positions.plate);
-    await page.locator('.machine-tier-toggle[data-tier-item="Wolfram Plate"]').click();
-    assert.deepEqual(await pulsingIds(), ['Wolfram Plate', 'Wolfram Bar'].sort());
+    assert.ok(positions.ingot < positions.sheet);
+    await page.locator('.machine-tier-toggle[data-tier-item="Heat Resistant Sheet"]').click();
+    assert.deepEqual(await pulsingIds(), ['Heat Resistant Sheet', 'Glass', 'Titanium Sheet', 'Wolfram Plate'].sort());
 
     const violations = await page.evaluate(() => {
       const failures = [];

@@ -366,7 +366,7 @@ test('browser rail plans conserve demand, suggest sufficient capacity, and resto
       return [...document.querySelectorAll('.graph-node[data-product-id="Onboard Instruments"]')]
         .map(node => ({ id: node.dataset.id, inputs: JSON.parse(node.dataset.inputs).sort() }));
     });
-    assert.equal(pooledOnboardFeeds.length, 3);
+    assert.equal(pooledOnboardFeeds.length, 2);
     assert.ok(pooledOnboardFeeds.every(node => JSON.stringify(node.inputs) === JSON.stringify(pooledOnboardFeeds[0].inputs)));
     const railLabelDensity = await page.evaluate(() => ({
       segmentCount: document.querySelectorAll('.rail-segment').length,

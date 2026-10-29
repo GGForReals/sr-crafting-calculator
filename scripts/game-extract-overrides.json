@@ -1,0 +1,45 @@
+{
+  "_comment": "Manual fixups for scripts/extract-game-recipes.mjs. Asset names in the cooked game data are internal dev names; most resolve to player-facing names through the localization string tables, but these do not follow any derivable key convention and must be mapped by hand. Verified against the in-game names used by data/recipes.json.",
+  "items": {
+    "I_Scafolding": "Scaffolding",
+    "I_HeliumOre": "Helium-3",
+    "I_Coil": "Inductor",
+    "I_GoethiteOre": "Goethite Ore",
+    "I_SulphurOre": "Sulphur Ore",
+    "I_IntermediateBuildingMaterial": "Intermediate Building Material",
+    "I_MagicOilOre": "Crude Oil",
+    "I_StandardAmmoItem": "Standard Ammo",
+    "I_HeavyAmmoItem": "Heavy Ammo",
+    "I_ShotgunAmmoItem": "Shotgun Ammo",
+    "I_LauncherAmmoItem": "Launcher Ammo",
+    "I_PistolAmmoItem": "Pistol Ammo"
+  },
+  "_buildingsComment": "The CRC_ collection asset names do not all match the building a player sees. CRC_Refinery/CRC_Pressurizer are swapped relative to their display names (confirmed against the in-game building names and third-party game-data databases), and CRC_Crafter has no string-table entry of its own.",
+  "buildings": {
+    "CRC_Crafter": "Fabricator",
+    "CRC_Refinery": "Pressurizer",
+    "CRC_Pressurizer": "Refinery"
+  },
+  "_ignoreBuildingsComment": "World-event, scenario and hand-crafting stations. Their recipes duplicate the production-chain ones and are not part of the calculator.",
+  "ignoreBuildings": [
+    "CRC_Player",
+    "CRC_ItemPrinter",
+    "CRC_MegaMachine_Scenario",
+    "CRC_ResearchLabTest",
+    "CRC_ForgottenEngine_EntryTerminal",
+    "CRC_ForgottenEngine_EngineControlStation",
+    "CRC_ForgottenEngine_FoodProcessor",
+    "CRC_ForgottenMachine_01_Crafter",
+    "CRC_ForgottenMachine_01_AmmoCrafter"
+  ],
+  "_deprioritizeComment": "Used only when no other machine produces the item.",
+  "deprioritizeBuildings": ["CRC_MaterialCrafter", "CRC_Hammer"],
+  "ignoreItems": [
+    "I_PlaceholderCraftingIngredient",
+    "I_PlaceholderCraftingResult",
+    "I_Scenario_Item_A",
+    "I_Scenario_Item_B",
+    "I_Scenario_Victory_Item"
+  ],
+  "ignoreRecipes": []
+}

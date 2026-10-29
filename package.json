@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "extract-game-recipes": "node scripts/extract-game-recipes.mjs",
     "scrape-recipes": "node scripts/scrape-recipes.mjs"
   },
   "devDependencies": {

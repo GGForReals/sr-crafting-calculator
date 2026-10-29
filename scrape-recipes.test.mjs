@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { decideRecipeWrite, getItemPageUrl, loadSearchSnapshot } from './scripts/scrape-recipes.mjs';
+import { decideRecipeWrite, fetchSearchEntries, getItemPageUrl, loadSearchSnapshot } from './scripts/scrape-recipes.mjs';
 import { readFile } from 'node:fs/promises';
 
 test('keeps the previous recipe set when the live scrape temporarily drops below the safety threshold', () => {
@@ -17,6 +17,26 @@ test('fails when there is no previous recipe set to fall back to', () => {
 test('writes the new scrape when it clears the safety threshold', () => {
   const decision = decideRecipeWrite(56, 96, 50);
   assert.equal(decision.action, 'write');
+});
+
+test('Search API falls back to a browser context when the direct request is blocked', async () => {
+  const entries = [{ type: 'item', category: 'resource', id: 'x', name: 'X' }];
+  let viaBrowserCalls = 0;
+  const result = await fetchSearchEntries({
+    direct: async () => { throw new Error('Search API returned 403'); },
+    viaBrowser: async () => { viaBrowserCalls++; return entries; }
+  });
+  assert.deepEqual(result, entries);
+  assert.equal(viaBrowserCalls, 1);
+});
+
+test('Search API uses the direct request when it succeeds', async () => {
+  const entries = [{ type: 'building', category: 'crafting', name: 'Furnace' }];
+  const result = await fetchSearchEntries({
+    direct: async () => entries,
+    viaBrowser: async () => { throw new Error('Browser fallback must not run'); }
+  });
+  assert.deepEqual(result, entries);
 });
 
 test('scraper navigation stays within the expected item origin and path', () => {

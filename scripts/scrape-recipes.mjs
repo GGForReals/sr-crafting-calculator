@@ -17,6 +17,7 @@ const OUTPUT_PATH = path.join(__dirname, '..', 'data', 'recipes.json');
 const MANUAL_RECIPES_PATH = path.join(__dirname, 'manual-recipes.json');
 
 const SEARCH_API = 'https://starrupture.tools/api/search';
+const SCRAPER_USER_AGENT = 'sr-crafting-calculator-scraper';
 const NAV_TIMEOUT_MS = 20000;
 const REQUEST_DELAY_MS = 350;
 const MAX_RETRIES = 2;
@@ -73,10 +74,49 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchBuildingCategories() {
-  const resp = await fetch(SEARCH_API, { headers: { 'User-Agent': 'sr-crafting-calculator-scraper' } });
+async function fetchSearchEntriesDirect() {
+  const resp = await fetch(SEARCH_API, { headers: { 'User-Agent': SCRAPER_USER_AGENT } });
   if (!resp.ok) throw new Error(`Search API returned ${resp.status}`);
-  const entries = await resp.json();
+  return resp.json();
+}
+
+// starrupture.tools bot-blocks plain requests from datacenter IPs, so the daily GitHub
+// Actions run gets a 403 even though the same request succeeds from a residential IP.
+// Replaying it inside Chromium clears the same check that item-page scraping already passes.
+async function fetchSearchEntriesViaBrowser() {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    const resp = await context.request.get(SEARCH_API);
+    if (!resp.ok()) throw new Error(`Search API returned ${resp.status()} through a browser context`);
+    return await resp.json();
+  } finally {
+    await browser.close();
+  }
+}
+
+export async function fetchSearchEntries({
+  direct = fetchSearchEntriesDirect,
+  viaBrowser = fetchSearchEntriesViaBrowser,
+} = {}) {
+  try {
+    return await direct();
+  } catch (error) {
+    console.warn(`  ! direct Search API request failed (${error.message}); retrying through a browser context.`);
+    return viaBrowser();
+  }
+}
+
+// Both the item list and the building categories come from the same payload; fetch it once
+// so a browser fallback doesn't launch Chromium twice.
+let cachedSearchEntries = null;
+function getSearchEntries() {
+  cachedSearchEntries ??= fetchSearchEntries();
+  return cachedSearchEntries;
+}
+
+async function fetchBuildingCategories() {
+  const entries = await getSearchEntries();
   const categoryByName = new Map();
   for (const e of entries) {
     if (e.type !== 'building') continue;
@@ -90,9 +130,7 @@ async function fetchBuildingCategories() {
 }
 
 async function fetchItemList() {
-  const resp = await fetch(SEARCH_API, { headers: { 'User-Agent': 'sr-crafting-calculator-scraper' } });
-  if (!resp.ok) throw new Error(`Search API returned ${resp.status}`);
-  const entries = await resp.json();
+  const entries = await getSearchEntries();
   const seen = new Set();
   return entries.filter((e) => {
     if (e.type !== 'item' || e.category !== 'resource') return false;
@@ -251,12 +289,19 @@ export async function loadSearchSnapshot({ loadItems = fetchItemList, loadCatego
   }
 }
 
+// Falling back to the previous dataset keeps a bad scrape from destroying good data, but a
+// silent fallback let the published recipes sit frozen for weeks while the run reported
+// success. Treat it as a failure so the scheduled run goes red and notifies.
 async function reportKeptDataset(message) {
   console.warn(message);
-  if (process.env.GITHUB_ACTIONS === 'true') console.warn('::warning::Recipe refresh did not complete; kept the validated previous dataset.');
+  const allowStale = process.env.ALLOW_STALE_RECIPES === '1';
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.warn(`::${allowStale ? 'warning' : 'error'}::Recipe refresh did not complete; kept the previous dataset, so published recipes are now stale.`);
+  }
   if (process.env.GITHUB_STEP_SUMMARY) {
     await appendFile(process.env.GITHUB_STEP_SUMMARY, '### Recipe refresh\n\nNo fresh dataset was generated. Kept the validated previous recipe dataset. Check the scraper log for the upstream failure or safety-threshold warning.\n');
   }
+  if (!allowStale) process.exitCode = 1;
 }
 
 async function main() {

@@ -51,7 +51,7 @@ test('hostile URLs and imported strings cannot execute HTML or corrupt calculato
     }
     await page.selectOption('#itemSelect', 'Rotor');
     const rotorRate = await page.locator('#rateInput').inputValue();
-    assert.equal(rotorRate, '60');
+    assert.equal(rotorRate, '40');
     for (const value of ['0', '-1', '-100']) {
       await page.fill('#rateInput', value);
       assert.equal(await page.locator('#rateInput').inputValue(), rotorRate);
