@@ -63,24 +63,12 @@ npm run extract-game-recipes -- --write # update data/recipes.json
 It finds a Steam install automatically; pass `--game-dir "D:\path\to\StarRupture"` if yours is elsewhere.
 Re-run it after each game update, review the diff, then commit.
 
-### Website cross-check
-
-[scripts/scrape-recipes.mjs](scripts/scrape-recipes.mjs) still scrapes
-[starrupture.tools](https://starrupture.tools) with Playwright, but it is now only a cross-check — it never
-publishes. The weekly `.github/workflows/cross-check-recipes.yml` workflow runs it and reports how far the
-site has drifted from the committed game data in the run summary. If the site blocks or breaks the scrape,
-the run fails loudly rather than silently keeping the previous dataset.
-
-```bash
-npx playwright install --with-deps chromium
-npm run scrape-recipes
-```
-
-This replaces the previous Google Apps Script + Google Sheet + Cloudflare Worker pipeline, which is no longer used.
+The calculator no longer scrapes or depends on third-party recipe websites. The installed game's cooked data is
+the only source used to update the recipe dataset.
 
 ## Tests
 
-See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the security review, completed checks, and unresolved hosting/third-party-script risks. Recipe data is validated in the browser, scraper, and publishing workflow.
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the security review, completed checks, and unresolved hosting/third-party-script risks. Recipe data is validated by the game-data extractor and in the browser.
 
 Run `npm test` after installing dependencies and Chromium. The browser regression test covers machine versions, live mixed production and extraction tiers, isolation from pending setup edits, shared links (including legacy blanket-tier links), invalid overrides, Clear, and mobile layout, scroll, and focus preservation.
 Graph tests cover direct-input selection, raw resources, recipe redraws, keyboard activation, reduced motion, and mouse/touch panning without accidental selection.

@@ -2,6 +2,10 @@
 
 Review date: 2026-10-03. Scope: the SR crafting calculator working tree, its recipe scraper and updater workflow, dependency advisories, repository history secrets, and public response headers. No changes were pushed or deployed.
 
+## Recipe Source Change: 2026-11-09
+
+The third-party recipe scraper and its scheduled cross-check workflow have been removed. The installed game's cooked data is the sole source for recipe updates. A local extraction against the installed game found 99 recipes and no differences from the committed dataset; the former GitHub-hosted cross-check was blocked with HTTP 403. The dated workflow and scraper notes below describe historical configurations, not active automation.
+
 ## Release Refresh: 2026-10-11
 
 - Reviewed the pending graph, pooled-feed expansion, cost guard, URL/data handling, SVG escaping, and workflow changes. No new concrete injection vulnerability was identified. This is a scoped review, not proof that every input or availability edge case is safe; the work-budget heuristic is not a guaranteed browser resource bound.

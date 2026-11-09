@@ -2,12 +2,11 @@
   "name": "sr-crafting-calculator",
   "private": true,
   "version": "1.0.0",
-  "description": "StarRupture Crafting Calculator - static site + recipe scraper",
+  "description": "StarRupture Crafting Calculator - static site with game-data recipe extraction",
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "extract-game-recipes": "node scripts/extract-game-recipes.mjs",
-    "scrape-recipes": "node scripts/scrape-recipes.mjs"
+    "extract-game-recipes": "node scripts/extract-game-recipes.mjs"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

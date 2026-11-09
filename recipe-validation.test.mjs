@@ -5,11 +5,9 @@ import { validateRecipeDataset } from './lib/recipeValidation.js';
 
 const validRecipe = () => ({ inputs: { Ore: 2 }, output: 1, time: 3, building: 'Furnace' });
 
-test('current generated and manual datasets pass validation', async () => {
-  for (const file of ['data/recipes.json', 'scripts/manual-recipes.json']) {
-    const data = JSON.parse(await readFile(new URL(file, import.meta.url), 'utf8'));
-    assert.equal(validateRecipeDataset(data), data);
-  }
+test('current game-extracted dataset passes validation', async () => {
+  const data = JSON.parse(await readFile(new URL('data/recipes.json', import.meta.url), 'utf8'));
+  assert.equal(validateRecipeDataset(data), data);
 });
 
 test('rejects malformed datasets and unsafe numeric quantities', () => {

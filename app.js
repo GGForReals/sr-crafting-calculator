@@ -32,7 +32,6 @@ const MACHINE_COLORS = {
   "Facturer":       "#34495e"
 };
 
-// Confirmed via community comments on starrupture.tools (items per minute, per purity).
 const ORE_EXCAVATOR_RATES = {
   v1: { impure: 60, normal: 120, pure: 240 },
   v2: { impure: 180, normal: 300, pure: 480 }

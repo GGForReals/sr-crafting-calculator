@@ -1,9 +1,7 @@
 // extract-game-recipes.mjs
 // Builds a recipe dataset straight from the installed StarRupture game files.
 //
-// Why this exists: starrupture.tools (our previous only source) stopped tracking the
-// Update 2 recipe rebalance, so the published calculator drifted away from the game.
-// The cooked game data is the authoritative source, so we read it directly.
+// The cooked game data is the authoritative recipe source, so this reads it directly.
 //
 // Usage:
 //   node scripts/extract-game-recipes.mjs [--game-dir <path>] [--write] [--json <path>]
