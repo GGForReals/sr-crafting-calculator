@@ -9,7 +9,7 @@
   <link rel="icon" href="data/SRCC_Icon.png" type="image/png">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=20261011-mobile-graph-polish" />
+  <link rel="stylesheet" href="style.css?v=20261109-external-supply" />
 </head>
 
 <body>
@@ -89,13 +89,15 @@
         <li><strong>Graph detail:</strong> Simple groups machines by product; Complex shows individual machines with evenly shared ingredient supply. This pooled layout is a planning assumption, not guaranteed in-game routing. Large pooled networks retain the grouped graph when estimated rendering work is too high.</li>
         <li><strong>Rail estimates:</strong> input nodes use ingredient demand per machine, while shared rails use the combined traffic on each span. Short machine connectors intentionally have no inline value; their hover details remain available. White junctions represent Rail Connectors; highlighted Modulator candidates are advisory rail-count transitions, currently supported up to five rails.</li>
         <li><strong>Mix machine tiers</strong> by clicking a row's v1 or v2 button. Production and Ore Excavator requirements update immediately, without another Calculate click. Blank tier cells mean there is no alternate version.</li>
+        <li><strong>Use existing production</strong> by choosing Supply externally on an intermediate item. The plan keeps its required delivery rate but excludes its machines and upstream ingredients. Supply the entire rate from your existing factory; partial supply is not modeled. External inputs appear as EXT sources one column before their first consumer in both graph modes. Shared supplies feed all consumers from one source; ingredients still needed by other branches remain in the plan. Use Produce here in the external-supply summary to restore a branch. Multiple choices remain selected when changing the same target's rate, rails, or machine tiers. Calculating a different target resets external supplies.</li>
+        <li><strong>Read crafting columns</strong> from inputs to the final product. Within each column, raw resources appear below crafted items and external supplies.</li>
         <li><strong>Change your setup</strong> at the top and click Calculate to apply it. Applying a different Machine Version resets individual version choices.</li>
         <li><strong>Inspect the graph</strong> by clicking or tapping a node to pulse it and its immediate inputs and highlight its incoming rail routes. Click again, click the background, or press Escape to clear. Enter or Space selects a focused node; reduced-motion settings use a static highlight.</li>
         <li><strong>Pan and zoom</strong> freely; use Reset view to recenter the graph if you lose your place.</li>
         <li><strong>View production details</strong> by crafting level, including output per machine, machine counts, input rates, and the rail serving each item's combined inputs.</li>
         <li><strong>View totals</strong> in the summary tables for machines and raw extraction needs, including Impure, Normal, and Pure ore deposits where applicable.</li>
-        <li><strong>Share setups</strong> with Share to copy a link that preserves Item, Rate, Rail Mode, Rail Version, Machine Version, and individual version choices. Opening the link restores the plan; Simple/Complex detail is a page-session choice and is not shared.</li>
-        <li><strong>Start fresh</strong> with Clear to reset the setup and tier choices. Use Light Mode or Dark Mode to switch the theme.</li>
+        <li><strong>Share setups</strong> with Share to copy a link that preserves Item, Rate, Rail Mode, Rail Version, Machine Version, individual version choices, and external supplies. Opening the link restores the plan; Simple/Complex detail is a page-session choice and is not shared.</li>
+        <li><strong>Start fresh</strong> with Clear to reset the setup, tier choices, and external supplies. Use Light Mode or Dark Mode to switch the theme.</li>
       </ul>
 
       <h4>Issues, Ideas, or Corrections</h4>
@@ -117,7 +119,7 @@
   <!-- ============================
        MAIN SCRIPT
   ============================= -->
-  <script src="app.js?v=20261011-aggregated-routing-labels"></script>
+  <script src="app.js?v=20261109-external-supply"></script>
 
 
   <!-- ⭐ Ko-fi Floating Support Button -->

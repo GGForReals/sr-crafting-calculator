@@ -13,6 +13,9 @@ Maintained by GGforReals.
 - **Per-item machine tier toggles (v1 / v2)** — click once to switch standard or upgraded buildings for each production step where both recipes exist; fixed-version machines have an empty tier cell
 - Machine Version selects all v1 or all v2 (where available) when Calculate generates the plan; changing the version waits for Calculate and resets individual overrides when applied
 - Input material flow rates per minute
+- Graph columns place raw resources below crafted items and externally supplied intermediates, with alphabetical ordering within each group in both Simple and Complex views.
+- External supplies sit one column before their earliest consumer in both graph views, rather than at the start of the raw-resource chain. Shared supplies retain a single source feeding all consumers.
+- External-supply bypasses for intermediate items already produced elsewhere: omit their machines and upstream ingredients, retain the full required delivery rate, and restore them with Produce here. Multiple selections persist across rate, rail, and machine-tier changes for the same target and in shared links; calculating a different target resets them. Unused selections are shown in the external-supply summary. The final target is always produced here. Partial supply is not modeled.
 - Rail throughput selector — v1 through v5 (120 / 240 / 480 / 750 / 1500 per minute)
 - Auto/Manual rail planning: minimum suggested tiers for shared traffic segments, bypasses, and final output, with compact graph labels and material-flow tooltips. See [RAIL_PLANNING.md](RAIL_PLANNING.md) for routing assumptions and capacity limitations.
 - Machine input nodes are sized from aggregate ingredient demand per installed machine; shared rail segments are sized independently from all traffic crossing them.
@@ -20,7 +23,7 @@ Maintained by GGforReals.
 - Complex expansion is guarded by estimated node and pooled-route work, rather than a fixed machine limit. Expensive plans retain the grouped graph with a notice.
 - Raw ore extraction breakdown (Impure / Normal / Pure), tier-aware for Ore Excavator v1 vs v2
 - Production and per-resource Ore Excavator tier changes update the displayed plan immediately, including its graph, machine counts, material requirements, and shareable link
-- Shareable links that preserve item, rate, rail, and machine tier settings
+- Shareable links that preserve item, rate, rail, machine tier settings, and external-supply choices
 - Mobile controls with touch-sized targets and horizontally scrolling tables with pinned production item names
 - Dark mode toggle for visual comfort
 - Instant browser access — no install required
@@ -71,6 +74,7 @@ the only source used to update the recipe dataset.
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the security review, completed checks, and unresolved hosting/third-party-script risks. Recipe data is validated by the game-data extractor and in the browser.
 
 Run `npm test` after installing dependencies and Chromium. The browser regression test covers machine versions, live mixed production and extraction tiers, isolation from pending setup edits, shared links (including legacy blanket-tier links), invalid overrides, Clear, and mobile layout, scroll, and focus preservation.
+External-supply tests cover shared ingredient demand, nested and multiple bypasses, restoring production, both graph modes, mixed tiers, shared links, hostile input, and mobile controls. Conservation checks compare bypassed plans against independently expanded ingredient demand across the game dataset.
 Graph tests cover direct-input selection, raw resources, recipe redraws, keyboard activation, reduced motion, and mouse/touch panning without accidental selection.
 Rail tests also cover pooled feed conservation, graph modes, work-based expansion limits, rail-count transition hints, label bounds and spacing, and vertical labels attached to their own spans. Short machine-to-spine connector stubs intentionally have no inline label; each segment retains its hover details.
 

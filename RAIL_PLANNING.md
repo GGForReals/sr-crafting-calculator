@@ -4,6 +4,8 @@
 
 Consumers request ingredients rather than producers continuously pushing everything they could produce. For a target output rate, the planner expands the selected recipes and sums the required deliveries to every consumer. Rounded machine counts do not imply that every installed machine produces at full capacity.
 
+Externally supplied intermediates stop recipe expansion at that item. Their full combined demand remains as an external source and participates in downstream rail sizing, but their machines and upstream extraction are excluded. Both graph modes retain one EXT source per supplied item; Complex mode distributes its deliveries across consumers without inventing external production machines. Shared ingredients still required by other branches remain in the plan.
+
 References reviewed on 2026-10-03:
 
 - [Community Rail & Transport Guide](https://steamcommunity.com/sharedfiles/filedetails/?id=3645384098): consumer requests, mixed-item shared rails, demand, and reported v1/v2/v3 capacities.

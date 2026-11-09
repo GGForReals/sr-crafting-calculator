@@ -209,11 +209,11 @@ test('browser rail plans conserve demand, suggest sufficient capacity, and resto
 
     await page.goto('http://calculator.test/?item=Standard%20Ammo&rate=1500&rail=1500&tier=v1&railMode=auto');
     await page.waitForSelector('.rail-segment', { state: 'attached' });
-    const ammoRow = page.locator('#outputArea tbody tr').filter({ has: page.locator('td:first-child', { hasText: /^Standard Ammo$/ }) });
+    const ammoRow = page.locator('tr[data-production-item="Standard Ammo"]');
     assert.match(await ammoRow.locator('td').nth(6).innerText(), /1 input node\/machine, v2 each \(8 total\)/);
-    const buildingMaterialRow = page.locator('#outputArea tbody tr').filter({ has: page.locator('td:first-child', { hasText: /^Basic Building Material$/ }) });
+    const buildingMaterialRow = page.locator('tr[data-production-item="Basic Building Material"]');
     assert.match(await buildingMaterialRow.locator('td').nth(6).innerText(), /1 input node\/machine, v1 each \(5 total\)/);
-    const wolframBarRow = page.locator('#outputArea tbody tr').filter({ has: page.locator('td:first-child', { hasText: /^Wolfram Bar$/ }) });
+    const wolframBarRow = page.locator('tr[data-production-item="Wolfram Bar"]');
     assert.match(await wolframBarRow.locator('td').nth(6).innerText(), /1 input node\/machine, v1 each \(2 total\)/);
     assert.ok(await page.locator('.graph-source[data-node-kind="raw-source"]').count() > 0);
     assert.ok(await page.locator('.graph-machine[data-node-kind="machine"]').count() > 0);

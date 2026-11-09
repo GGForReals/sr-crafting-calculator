@@ -58,6 +58,7 @@ let RECIPES = {};
 let TIERS = {};
 
 let ITEM_TIER_OVERRIDES = new Map();
+let EXTERNAL_SUPPLIES = new Set();
 let ACTIVE_PLAN = null;
 let SELECTED_GRAPH_NODE = null;
 let RAIL_PLANNING = null;
@@ -79,6 +80,10 @@ function renderMachineTierToggle(name) {
   const selectedTier = getItemTier(name);
   const nextTier = selectedTier === 'v1' ? 'v2' : 'v1';
   return `<button type="button" class="machine-tier-toggle" data-tier-item="${escapeHtml(name)}" value="${selectedTier}" aria-label="${escapeHtml(name)} machine ${selectedTier}; switch to ${nextTier}" aria-pressed="${selectedTier === 'v2'}" title="Switch to ${nextTier}">${selectedTier}</button>`;
+}
+
+function renderSupplyToggle(name, external = false) {
+  return `<button type="button" class="supply-toggle" data-supply-item="${escapeHtml(name)}" aria-pressed="${external}" aria-label="${external ? 'Produce' : 'Supply'} ${escapeHtml(name)} ${external ? 'in this plan' : 'externally'}">${external ? 'Produce here' : 'Supply externally'}</button>`;
 }
 
 function isTierTwoBuilding(buildingName) {
@@ -323,13 +328,15 @@ function expandChain(item, targetRate) {
   const chain = {};
   const machineTotals = {};
   const extractorTotals = {};
+  const externalTotals = {};
   const pending = {};
   const processed = {};
   const queue = [];
   const recipeDepths = new Map();
+  const isExternal = name => name !== item && EXTERNAL_SUPPLIES.has(name) && Object.hasOwn(RECIPES, name);
   function recipeDepth(name) {
     if (recipeDepths.has(name)) return recipeDepths.get(name);
-    const recipe = getRecipe(name);
+    const recipe = isExternal(name) ? null : getRecipe(name);
     const depth = recipe ? 1 + Math.max(0, ...Object.keys(recipe.inputs).map(recipeDepth)) : 0;
     recipeDepths.set(name, depth);
     return depth;
@@ -341,6 +348,15 @@ function expandChain(item, targetRate) {
   }
 
   function enqueue(name, rate) {
+    if (isExternal(name)) {
+      externalTotals[name] = (externalTotals[name] || 0) + rate;
+      if (!chain[name]) {
+        chain[name] = { rate, raw: true, external: true, building: "EXTERNAL", machines: 0, inputs: {} };
+      } else {
+        chain[name].rate += rate;
+      }
+      return;
+    }
     const recipe = getRecipe(name);
     if (!recipe) {
       trackExtractor(name, rate);
@@ -391,7 +407,7 @@ function expandChain(item, targetRate) {
     }
   }
 
-  return { chain, machineTotals, extractorTotals };
+  return { chain, machineTotals, extractorTotals, externalTotals };
 }
 
 /* ===============================
@@ -414,10 +430,10 @@ function computeDepthsFromTiers(chain, rootItem) {
   }
 
   for (const item of Object.keys(chain || {})) depthFor(item);
-  for (const rawName of LEFT_OF_CONSUMER_RAWS) {
-    if (!chain[rawName]?.raw) continue;
-    const consumers = Object.entries(chain).filter(([, data]) => Object.hasOwn(data.inputs || {}, rawName));
-    if (consumers.length) depths[rawName] = Math.min(...consumers.map(([name]) => depths[name])) - 1;
+  for (const [source, data] of Object.entries(chain || {})) {
+    if (!data.external && !(data.raw && LEFT_OF_CONSUMER_RAWS.includes(source))) continue;
+    const consumers = Object.entries(chain).filter(([, consumer]) => Object.hasOwn(consumer.inputs || {}, source));
+    if (consumers.length) depths[source] = Math.min(...consumers.map(([name]) => depths[name])) - 1;
   }
 
   return depths;
@@ -762,8 +778,9 @@ function buildGraphData(chain, rootItem) {
     const node = {
       id: item,
       label: item,
-      kind: data.raw ? 'raw-source' : 'machine',
+      kind: data.external ? 'external-source' : data.raw ? 'raw-source' : 'machine',
       raw: !!data.raw,
+      external: !!data.external,
       building: data.building || null,
       machines: data.machines || 0,
       rate: data.rate || 0,
@@ -843,7 +860,10 @@ function renderGraph(nodes, links, rootItem) {
 
   for (const [depth, colNodes] of Object.entries(columns)) {
     const idx = depthIndex.get(Number(depth)) ?? 0;
-    colNodes.sort((a,b)=>String(a.label||a.id).localeCompare(String(b.label||b.id)));
+    colNodes.sort((a, b) =>
+      Number(a.raw && !a.external) - Number(b.raw && !b.external)
+      || String(a.label || a.id).localeCompare(String(b.label || b.id))
+    );
     colNodes.forEach((node,i)=>{
       node.x = roundCoord(idx * MACHINE_COL_WIDTH + 100);
       node.y = roundCoord(i * GRAPH_ROW_HEIGHT + 100);
@@ -1044,7 +1064,9 @@ function renderGraph(nodes, links, rootItem) {
   // Nodes
   // ---------------------------------
   for (const node of nodes) {
-    const fillColor = node.raw
+    const fillColor = node.external
+      ? "#48dbcb"
+      : node.raw
       ? "#f4d03f"
       : MACHINE_COLORS[node.building] || "#95a5a6";
 
@@ -1063,8 +1085,8 @@ function renderGraph(nodes, links, rootItem) {
         : "";
 
     inner += `
-      <g class="graph-node ${node.raw ? 'graph-source' : 'graph-machine'}" data-node-kind="${node.kind}" data-id="${escapeHtml(node.id)}" data-product-id="${escapeHtml(node.productId || node.id)}" data-inputs="${escapeHtml(JSON.stringify(directInputs.get(pooled ? node.productId : node.id) || []))}" tabindex="0" role="button" aria-label="${node.raw ? `Raw source ${escapeHtml(node.id)}` : `Inspect inputs for ${escapeHtml(node.id)}`}" aria-pressed="false">
-        ${node.raw ? `<title>Raw source: ${escapeHtml(node.id)}. Supplies ${Number(node.rate.toFixed(2))}/min to its recipe consumers.</title>` : ''}
+      <g class="graph-node ${node.raw ? 'graph-source' : 'graph-machine'}${node.external ? ' graph-external' : ''}" data-node-kind="${node.kind}" data-id="${escapeHtml(node.id)}" data-product-id="${escapeHtml(node.productId || node.id)}" data-inputs="${escapeHtml(JSON.stringify(directInputs.get(pooled ? node.productId : node.id) || []))}" tabindex="0" role="button" aria-label="${node.raw ? `${node.external ? 'External supply' : 'Raw source'} ${escapeHtml(node.id)}` : `Inspect inputs for ${escapeHtml(node.id)}`}" aria-pressed="false">
+        ${node.raw ? `<title>${node.external ? 'External supply' : 'Raw source'}: ${escapeHtml(node.id)}. Supplies ${Number(node.rate.toFixed(2))}/min to its recipe consumers.${node.external ? ' Its production and upstream ingredients are excluded from this plan.' : ''}</title>` : ''}
         ${(node.productId || node.id) === rootItem ? (() => {
           const outputRail = RAIL_PLANNING.recommendRail(node.rate, manualCapacity, maxAvailableCapacity);
           return `<title>Final output: ${Number(node.rate.toFixed(2))} items/min; ${outputRail.count > 1 ? outputRail.count + ' x ' : ''}v${outputRail.tier} (${outputRail.capacity}/min each)</title>`;
@@ -1112,7 +1134,7 @@ function renderGraph(nodes, links, rootItem) {
           const description = `${ports.inputNodesPerMachine} input node${ports.inputNodesPerMachine === 1 ? '' : 's'} at v${ports.tier} per machine.`;
           return `<g class="machine-input-ports" data-input-nodes-per-machine="${ports.inputNodesPerMachine}" data-total-input-nodes="${ports.totalInputNodes}" data-input-rate-per-machine="${ports.ratePerMachine}" data-rail-tier="${ports.tier}" data-rail-count-per-machine="${ports.count}"><title>${description} ${Number(ports.ratePerMachine.toFixed(2))}/min aggregate inputs per machine; ${ports.totalInputNodes} total selected-tier input nodes across ${ports.machineCount} machines. Items may share each rail under pull demand.</title>${portMarkers}${overflow}</g>`;
         })() : ''}
-        ${node.raw || productInputs.has(pooled ? node.productId : node.id) ? `<g class="node-output-feed" data-node-kind="${node.raw ? 'raw-source-output' : 'machine-output'}"><title>${node.raw ? 'Raw source output feed' : 'Product output feed'}: ${Number(node.rate.toFixed(2))}/min</title><circle cx="${node.x + nodeRadius}" cy="${node.y}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" /></g>` : ''}
+        ${node.raw || productInputs.has(pooled ? node.productId : node.id) ? `<g class="node-output-feed" data-node-kind="${node.external ? 'external-source-output' : node.raw ? 'raw-source-output' : 'machine-output'}"><title>${node.external ? 'External supply output feed' : node.raw ? 'Raw source output feed' : 'Product output feed'}: ${Number(node.rate.toFixed(2))}/min</title><circle cx="${node.x + nodeRadius}" cy="${node.y}" r="4" fill="${fillColor}" stroke="var(--line-color)" stroke-width="2" /></g>` : ''}
 
         <!-- machine count inside node -->
         ${
@@ -1127,7 +1149,7 @@ function renderGraph(nodes, links, rootItem) {
             `
             : ""
         }
-        ${node.raw ? `<text class="sourceNodeMarker" x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central">RAW</text>` : ''}
+        ${node.raw ? `<text class="sourceNodeMarker" x="${node.x}" y="${node.y}" text-anchor="middle" dominant-baseline="central">${node.external ? 'EXT' : 'RAW'}</text>` : ''}
       </g>
     `;
   }
@@ -1215,7 +1237,7 @@ function attachNodePointerHandlers(wrapper) {
    Render table + graph
    =============================== */
 function renderTable(chainObj, rootItem, rate, railSpeed) {
-  const { chain, machineTotals, extractorTotals } = chainObj;
+  const { chain, machineTotals, extractorTotals, externalTotals } = chainObj;
 
   // Build graph data (nodes + links) and ensure depths are attached
   const graph = buildGraphData(chain, rootItem);
@@ -1300,6 +1322,7 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
   // Build table HTML
   let html = `
     <h2>Production chain for ${escapeHtml(String(rate))} / min of ${escapeHtml(rootItem)}</h2>
+    <p class="supply-help">Already making an intermediate item? Choose Supply externally to omit its production and upstream ingredients. The full required rate must come from outside this plan.</p>
     <table>
       <thead>
         <tr>
@@ -1353,8 +1376,8 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
         .join("<br>") || "—";
 
       html += `
-        <tr>
-          <td>${escapeHtml(item)}</td>
+        <tr data-production-item="${escapeHtml(item)}">
+          <td><div class="production-item"><span class="production-item-name">${escapeHtml(item)}</span>${item !== rootItem ? renderSupplyToggle(item) : '<span class="production-target">Target</span>'}</div></td>
           <td>${Math.ceil(data.rate || 0)}</td>
           <td>${outputPerMachine}</td>
           <td>${machines}</td>
@@ -1367,6 +1390,25 @@ function renderTable(chainObj, rootItem, rate, railSpeed) {
   }
 
   html += `</tbody></table>`;
+
+  if (EXTERNAL_SUPPLIES.size) {
+    html += `
+      <h3>EXTERNAL SUPPLY REQUIRED</h3>
+      <p>These items are supplied in full, not produced or extracted here. Choices not currently needed stay selected until restored.</p>
+      <table class="external-supply-table">
+        <thead><tr><th>Item</th><th>Required /min</th><th>Source</th></tr></thead>
+        <tbody>
+          ${[...EXTERNAL_SUPPLIES].sort((a, b) => a.localeCompare(b)).map(name => `
+            <tr>
+              <td>${escapeHtml(name)}</td>
+              <td>${externalTotals[name] > 0 ? Math.ceil(externalTotals[name]) : 'Not required by this plan'}</td>
+              <td>${renderSupplyToggle(name, true)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
 
   // Machines required summary (unchanged)
   html += `
@@ -1425,6 +1467,9 @@ function renderActivePlan() {
   if (ITEM_TIER_OVERRIDES.size) {
     params.set('tiers', JSON.stringify(Object.fromEntries([...ITEM_TIER_OVERRIDES].sort(([first], [second]) => first.localeCompare(second)))));
   }
+  if (EXTERNAL_SUPPLIES.size) {
+    params.set('supplied', JSON.stringify([...EXTERNAL_SUPPLIES].sort()));
+  }
   history.replaceState(null, "", "?" + params.toString());
 }
 
@@ -1459,6 +1504,8 @@ function runCalculator() {
   const tier = document.getElementById("tierSelect").value === 'v2' ? 'v2' : 'v1';
   if (ACTIVE_PLAN && ACTIVE_PLAN.tier !== tier) ITEM_TIER_OVERRIDES.clear();
   const railMode = document.getElementById('railModeToggle').dataset.mode;
+  if (ACTIVE_PLAN && ACTIVE_PLAN.item !== item) EXTERNAL_SUPPLIES.clear();
+  EXTERNAL_SUPPLIES.delete(item);
   ACTIVE_PLAN = { item, rate, rail, tier, railMode };
   SELECTED_GRAPH_NODE = null;
   renderActivePlan();
@@ -1503,6 +1550,24 @@ async function init() {
   updateRailMode();
   const outputArea = document.getElementById("outputArea");
   outputArea?.addEventListener('click', event => {
+    const supplyButton = event.target.closest('button[data-supply-item]');
+    if (supplyButton && ACTIVE_PLAN) {
+      const name = supplyButton.dataset.supplyItem;
+      if (name === ACTIVE_PLAN.item || !Object.hasOwn(RECIPES, name)) return;
+      const previousTop = supplyButton.getBoundingClientRect().top;
+      const previousScroll = outputArea.scrollLeft;
+      if (EXTERNAL_SUPPLIES.has(name)) EXTERNAL_SUPPLIES.delete(name);
+      else EXTERNAL_SUPPLIES.add(name);
+      SELECTED_GRAPH_NODE = null;
+      renderActivePlan();
+      outputArea.scrollLeft = previousScroll;
+      const replacement = [...outputArea.querySelectorAll('[data-supply-item]')].find(element => element.dataset.supplyItem === name);
+      if (replacement) {
+        replacement.focus({ preventScroll: true });
+        window.scrollBy(0, replacement.getBoundingClientRect().top - previousTop);
+      }
+      return;
+    }
     const button = event.target.closest('button[data-tier-item]');
     if (!button || !ACTIVE_PLAN || !['v1', 'v2'].includes(button.value)) return;
     const name = button.dataset.tierItem;
@@ -1595,6 +1660,28 @@ async function init() {
       }
     }
   } catch {}
+  if (params.has('supplied')) {
+    let sharedSupplies;
+    try {
+      sharedSupplies = JSON.parse(params.get('supplied'));
+    } catch (error) {
+      console.warn('Invalid external supply choices in shared link:', error);
+    }
+    let invalidSupplies = !Array.isArray(sharedSupplies) || sharedSupplies.length > 2000;
+    if (!invalidSupplies) {
+      for (const name of sharedSupplies) {
+        if (typeof name === 'string' && name !== sharedItem && Object.hasOwn(RECIPES, name)) {
+          EXTERNAL_SUPPLIES.add(name);
+        } else {
+          invalidSupplies = true;
+        }
+      }
+    }
+    if (invalidSupplies) {
+      console.warn('Unsupported external supply choices in shared link were ignored.');
+      showToast('Invalid external supply choices in this link were ignored.');
+    }
+  }
   if (sharedItem && sharedRate && !sharedItem.startsWith('_')) runCalculator();
 
   // Buttons wiring
