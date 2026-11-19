@@ -16,6 +16,7 @@ const GRAPH_CONTENT_PAD = 64;
 
 const MACHINE_COLORS = {
   "Smelter":      "#e67e22",
+  "Smelter v.2":  "#f39c12",
   "Furnace":      "#d63031",
   "Fabricator":   "#0984e3",
   "Mega Press":   "#6c5ce7",
