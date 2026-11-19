@@ -122,7 +122,15 @@
     },
     "output": 2,
     "time": 2,
-    "building": "Smelter"
+    "building": "Smelter",
+    "altBuilding": {
+      "building": "Smelter v.2",
+      "inputs": {
+        "Calcium Ore": 12
+      },
+      "output": 16,
+      "time": 4
+    }
   },
   "Calcium Powder": {
     "inputs": {
@@ -181,12 +189,11 @@
     "altBuilding": {
       "building": "Furnace v.2",
       "inputs": {
-        "Calcium Powder": 1,
-        "Wolfram Powder": 2,
-        "Helium-3": 4,
-        "Goethite Ingot": 1
+        "Synthetic Silicon": 1,
+        "Wolfram Powder": 5,
+        "Helium-3": 2
       },
-      "output": 16,
+      "output": 8,
       "time": 2
     }
   },
@@ -327,11 +334,10 @@
     "altBuilding": {
       "building": "Furnace v.2",
       "inputs": {
-        "Pressurized Helium": 1,
-        "Calcite Sheets": 1,
-        "Goethite Ingot": 1
+        "Helium-3": 2,
+        "Calcium Powder": 3
       },
-      "output": 16,
+      "output": 4,
       "time": 3
     }
   },
@@ -518,14 +524,6 @@
     "output": 1,
     "time": 8,
     "building": "Assembler"
-  },
-  "Launcher Ammo": {
-    "inputs": {
-      "Basic Building Material": 35
-    },
-    "output": 6,
-    "time": 5,
-    "building": "Military Crafter"
   },
   "Lens": {
     "inputs": {
@@ -1024,7 +1022,15 @@
     },
     "output": 2,
     "time": 2,
-    "building": "Smelter"
+    "building": "Smelter",
+    "altBuilding": {
+      "building": "Smelter v.2",
+      "inputs": {
+        "Titanium Ore": 12
+      },
+      "output": 16,
+      "time": 4
+    }
   },
   "Titanium Beam": {
     "inputs": {
@@ -1124,10 +1130,10 @@
     "altBuilding": {
       "building": "Fabricator v.2",
       "inputs": {
-        "Titanium Rod": 2,
-        "Titanium Sheet": 2
+        "Goethite Ingot": 1,
+        "Titanium Sheet": 3
       },
-      "output": 10,
+      "output": 16,
       "time": 2
     }
   },
@@ -1152,14 +1158,6 @@
     "time": 4,
     "building": "Assembler"
   },
-  "Universal Space Soil": {
-    "inputs": {
-      "Titanium Ore": 2
-    },
-    "output": 1,
-    "time": 10,
-    "building": "Smelter v.2"
-  },
   "Valve": {
     "inputs": {
       "Titanium Housing": 1,
@@ -1177,7 +1175,15 @@
     },
     "output": 2,
     "time": 2,
-    "building": "Smelter"
+    "building": "Smelter",
+    "altBuilding": {
+      "building": "Smelter v.2",
+      "inputs": {
+        "Wolfram Ore": 12
+      },
+      "output": 16,
+      "time": 4
+    }
   },
   "Wolfram Plate": {
     "inputs": {

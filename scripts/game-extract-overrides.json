@@ -8,6 +8,7 @@
     "I_SulphurOre": "Sulphur Ore",
     "I_IntermediateBuildingMaterial": "Intermediate Building Material",
     "I_MagicOilOre": "Crude Oil",
+    "I_Grenade": "Explosive Charge",
     "I_StandardAmmoItem": "Standard Ammo",
     "I_HeavyAmmoItem": "Heavy Ammo",
     "I_ShotgunAmmoItem": "Shotgun Ammo",
@@ -36,6 +37,7 @@
   "deprioritizeBuildings": ["CRC_MaterialCrafter", "CRC_Hammer"],
   "ignoreItems": [
     "I_PlaceholderCraftingIngredient",
+    "I_TestResourceItem",
     "I_PlaceholderCraftingResult",
     "I_Scenario_Item_A",
     "I_Scenario_Item_B",

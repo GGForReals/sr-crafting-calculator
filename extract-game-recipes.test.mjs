@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   assetNameToDisplayName,
   decodeRecipeEntries,
+  diffDatasets,
   isTieredVariant,
 } from './scripts/extract-game-recipes.mjs';
 
@@ -108,4 +109,34 @@ test('identifies upgraded machine tiers', () => {
   assert.equal(isTieredVariant('Constructorizer v.2'), true);
   assert.equal(isTieredVariant('Furnace'), false);
   assert.equal(isTieredVariant('Mega Press'), false);
+});
+
+test('reports alternate-machine recipe changes', () => {
+  const base = {
+    inputs: { 'Titanium Bar': 1 },
+    output: 2,
+    time: 2,
+    building: 'Smelter',
+  };
+  const result = diffDatasets(
+    {
+      'Titanium Block': {
+        ...base,
+        altBuilding: {
+          building: 'Smelter v.2',
+          inputs: { 'Titanium Ore': 12 },
+          output: 16,
+          time: 4,
+        },
+      },
+    },
+    { 'Titanium Block': base },
+  );
+
+  assert.deepEqual(result.changed, [
+    {
+      name: 'Titanium Block',
+      differences: ['altBuilding: - -> Smelter v.2'],
+    },
+  ]);
 });

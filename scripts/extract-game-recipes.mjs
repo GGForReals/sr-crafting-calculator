@@ -346,7 +346,40 @@ export async function extractRecipes({ gameDir } = {}) {
   }
 }
 
-function diffDatasets(extracted, current) {
+function recipeDifferences(recipe, existing, prefix = '') {
+  const differences = [];
+  const label = (field) => `${prefix}${field}`;
+  const allInputs = new Set([
+    ...Object.keys(recipe.inputs ?? {}),
+    ...Object.keys(existing.inputs ?? {}),
+  ]);
+
+  for (const input of allInputs) {
+    const before = existing.inputs?.[input];
+    const after = recipe.inputs?.[input];
+    if (before !== after) differences.push(`${label(`${input}`)}: ${before ?? '-'} -> ${after ?? '-'}`);
+  }
+
+  for (const field of ['output', 'time', 'building']) {
+    const before = existing[field];
+    const after = recipe[field];
+    if (before !== after) differences.push(`${label(`${field}`)}: ${before ?? '-'} -> ${after ?? '-'}`);
+  }
+
+  if (recipe.altBuilding && existing.altBuilding) {
+    differences.push(
+      ...recipeDifferences(recipe.altBuilding, existing.altBuilding, `${prefix}altBuilding.`),
+    );
+  } else if (recipe.altBuilding) {
+    differences.push(`${label('altBuilding')}: - -> ${recipe.altBuilding.building}`);
+  } else if (existing.altBuilding) {
+    differences.push(`${label('altBuilding')}: ${existing.altBuilding.building} -> -`);
+  }
+
+  return differences;
+}
+
+export function diffDatasets(extracted, current) {
   const changed = [];
   const onlyInGame = [];
   const onlyInCurrent = [];
@@ -357,17 +390,7 @@ function diffDatasets(extracted, current) {
       onlyInGame.push(name);
       continue;
     }
-    const differences = [];
-    const allInputs = new Set([...Object.keys(recipe.inputs), ...Object.keys(existing.inputs)]);
-    for (const input of allInputs) {
-      const before = existing.inputs[input];
-      const after = recipe.inputs[input];
-      if (before !== after) differences.push(`${input}: ${before ?? '-'} -> ${after ?? '-'}`);
-    }
-    if (existing.output !== recipe.output) differences.push(`output: ${existing.output} -> ${recipe.output}`);
-    if (Math.abs((existing.time ?? 0) - recipe.time) > 0.001) {
-      differences.push(`time: ${existing.time} -> ${recipe.time}`);
-    }
+    const differences = recipeDifferences(recipe, existing);
     if (differences.length > 0) changed.push({ name, differences });
   }
 
